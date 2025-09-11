@@ -1,0 +1,505 @@
+global.DOMException = global.Error as any;
+
+import "fake-indexeddb/auto";
+import "observable-polyfill";
+
+import { expectTypeOf } from "expect-type";
+import { deepEqual, rejects, partialDeepStrictEqual } from "node:assert/strict";
+import { test } from "node:test";
+import { openTIDB, schema, TIDBKeyRange } from "./index.ts";
+
+test("kv store", async (t) => {
+  const db = await openTIDB("kv-store", 1, {
+    num2str: {
+      key: schema<number>(),
+      value: schema<string>(),
+    },
+    str2unknown: {
+      key: schema<string>(),
+      value: schema<unknown>(),
+    },
+  });
+
+  expectTypeOf(db.transaction).parameter(0).toEqualTypeOf<("num2str" | "str2unknown")[]>();
+
+  await t.test("object stores in transaction", async (t) => {
+    const tx = db.transaction(["num2str", "str2unknown"], "readonly");
+    expectTypeOf(tx.objectStore).parameter(0).toEqualTypeOf<"num2str" | "str2unknown">();
+    tx.abort();
+  });
+
+  await t.test("number to string", async (t) => {
+    const tx = db.transaction(["num2str"], "readwrite");
+    expectTypeOf(tx.objectStore).parameter(0).toEqualTypeOf<"num2str">();
+    const store = tx.objectStore("num2str");
+    expectTypeOf(store.add).parameter(0).toEqualTypeOf<string>();
+    expectTypeOf(store.add).parameter(1).toEqualTypeOf<number>();
+    expectTypeOf(store.add).returns.resolves.toEqualTypeOf<number>();
+    deepEqual(await store.add("value", 1), 1);
+    expectTypeOf(store.get).parameter(0).toEqualTypeOf<number>();
+    expectTypeOf(store.get).returns.resolves.toEqualTypeOf<string>();
+    deepEqual(await store.get(1), "value");
+    deepEqual(await store.getAll(TIDBKeyRange.only(1)), ["value"]);
+    tx.commit();
+    await tx.done;
+  });
+
+  await t.test("string to unknown", async (t) => {
+    const tx = db.transaction(["str2unknown"], "readwrite");
+    expectTypeOf(tx.objectStore).parameter(0).toEqualTypeOf<"str2unknown">();
+    const store = tx.objectStore("str2unknown");
+    expectTypeOf(store.add).parameter(0).toEqualTypeOf<unknown>();
+    expectTypeOf(store.add).parameter(1).toEqualTypeOf<string>();
+    expectTypeOf(store.add).returns.resolves.toEqualTypeOf<string>();
+    deepEqual(await store.add({ value: true }, "key"), "key");
+    expectTypeOf(store.get).parameter(0).toEqualTypeOf<string>();
+    expectTypeOf(store.get).returns.resolves.toEqualTypeOf<unknown>();
+    deepEqual(await store.get("key"), { value: true });
+    tx.commit();
+    await tx.done;
+  });
+
+  await t.test("in readonly transaction write methods use never", async (t) => {
+    const tx = db.transaction(["num2str"], "readonly");
+    const store = tx.objectStore("num2str");
+    expectTypeOf(store.add).parameter(0).toBeNever();
+    expectTypeOf(store.put).parameter(0).toBeNever();
+    expectTypeOf(store.delete).parameter(0).toBeNever();
+    expectTypeOf(store.clear).parameter(0).toBeNever();
+    await tx.done;
+  });
+
+  db.close();
+});
+
+test("autoIncrement key", async (t) => {
+  const db = await openTIDB("auto-increment-key", 1, {
+    numbered: {
+      key: schema<number>(),
+      autoIncrement: true,
+      value: schema<unknown>(),
+    },
+    named: {
+      key: schema<string>(),
+      autoIncrement: true,
+      value: schema<unknown>(),
+    },
+  });
+
+  await t.test("input key can be undefined when autoIncrement is true", async (t) => {
+    const tx = db.transaction(["numbered"], "readwrite");
+    const store = tx.objectStore("numbered");
+    expectTypeOf(store.add).parameter(1).toEqualTypeOf<number | undefined>();
+    expectTypeOf(store.add).returns.resolves.toEqualTypeOf<number>();
+    deepEqual(await store.add("val1"), 1);
+    expectTypeOf(store.get).parameter(0).toEqualTypeOf<number>();
+    deepEqual(await store.get(1), "val1");
+    await tx.done;
+  });
+
+  await t.test("output key includes number when autoIncrement is true", async (t) => {
+    const tx = db.transaction(["named"], "readwrite");
+    const store = tx.objectStore("named");
+    expectTypeOf(store.add).parameter(1).toEqualTypeOf<string | undefined>();
+    expectTypeOf(store.add).returns.resolves.toEqualTypeOf<string | number>();
+    deepEqual(await store.add("val1"), 1);
+    expectTypeOf(store.get).parameter(0).toEqualTypeOf<string | number>();
+    deepEqual(await store.get(1), "val1");
+    await tx.done;
+  });
+
+  db.close();
+});
+
+test("inline key and index", async (t) => {
+  const db = await openTIDB("inline-key+index", 1, {
+    num2name: {
+      keyPath: "id",
+      value: schema<{
+        id: number;
+        name: string;
+      }>(),
+      indexes: {
+        byName: {
+          keyPath: "name",
+        },
+      },
+    },
+    union2date: {
+      keyPath: "id",
+      value: schema<{
+        id: number | string;
+        created: Date;
+      }>(),
+      indexes: {
+        byDate: {
+          keyPath: "created",
+        },
+      },
+    },
+  });
+
+  await t.test("num key from prop", async (t) => {
+    const tx = db.transaction(["num2name"], "readwrite");
+    const store = tx.objectStore("num2name");
+    expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
+    expectTypeOf(store.add).returns.resolves.toEqualTypeOf<number>();
+    deepEqual(await store.add({ id: 1, name: "foo" }), 1);
+    expectTypeOf(store.get).parameter(0).toEqualTypeOf<number>();
+    deepEqual(await store.get(1), { id: 1, name: "foo" });
+    await tx.done;
+  });
+
+  await t.test("string index", async (t) => {
+    const tx = db.transaction(["num2name"], "readonly");
+    const store = tx.objectStore("num2name");
+    const idx = store.index("byName");
+    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
+    deepEqual(await idx.get("foo"), { id: 1, name: "foo" });
+    await tx.done;
+  });
+
+  const now = new Date();
+
+  await t.test("union key from prop", async (t) => {
+    const tx = db.transaction(["union2date"], "readwrite");
+    const store = tx.objectStore("union2date");
+    expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
+    expectTypeOf(store.add).returns.resolves.toEqualTypeOf<number | string>();
+    deepEqual(await store.add({ id: 1, created: now }), 1);
+    expectTypeOf(store.get).parameter(0).toEqualTypeOf<number | string>();
+    deepEqual(await store.get(1), { id: 1, created: now });
+    await tx.done;
+  });
+
+  await t.test("date index", async (t) => {
+    const tx = db.transaction(["union2date"], "readonly");
+    const store = tx.objectStore("union2date");
+    const idx = store.index("byDate");
+    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<Date>();
+    deepEqual(await idx.get(now), { id: 1, created: now });
+    await tx.done;
+  });
+
+  db.close();
+});
+
+test("deeply nested key and index", async (t) => {
+  const db = await openTIDB("deeply-nested-key+index", 1, {
+    deeplyNested: {
+      keyPath: "foo.bar.baz",
+      autoIncrement: true,
+      value: schema<{ foo: { bar: { baz: string } } }>(),
+      indexes: {
+        byBaz: {
+          keyPath: "foo.bar.baz",
+        },
+      },
+    },
+  });
+
+  await t.test("deeply nested key", async (t) => {
+    const tx = db.transaction(["deeplyNested"], "readwrite");
+    const store = tx.objectStore("deeplyNested");
+    expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
+    expectTypeOf(store.add).returns.resolves.toEqualTypeOf<string | number>();
+    deepEqual(await store.add({ foo: { bar: { baz: "1" } } }), "1");
+    expectTypeOf(store.get).parameter(0).toEqualTypeOf<string | number>();
+    deepEqual(await store.get("1"), { foo: { bar: { baz: "1" } } });
+    await tx.done;
+  });
+
+  await t.test("deeply nested index", async (t) => {
+    const tx = db.transaction(["deeplyNested"], "readonly");
+    const store = tx.objectStore("deeplyNested");
+    const idx = store.index("byBaz");
+    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
+    deepEqual(await idx.get("1"), { foo: { bar: { baz: "1" } } });
+    await tx.done;
+  });
+
+  db.close();
+});
+
+test("invalid key path", async (t) => {
+  type Value = {
+    bool: boolean;
+    maybeStr?: string | null;
+    boolOrNum: boolean | number;
+    unknown?: unknown;
+  };
+  const db = await openTIDB("invalid-key-path", 1, {
+    invalid: {
+      keyPath: "doesnt.exist",
+      value: schema<Value>(),
+      indexes: {
+        byBool: {
+          keyPath: "bool",
+        },
+        byMaybeStr: {
+          keyPath: "maybeStr",
+        },
+        byBoolOrNum: {
+          keyPath: "boolOrNum",
+        },
+        byUnknown: {
+          keyPath: "unknown",
+        },
+      },
+    },
+  });
+
+  await t.test("non existent key path is never", async (t) => {
+    const tx = db.transaction(["invalid"], "readwrite");
+    const store = tx.objectStore("invalid");
+    expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
+    expectTypeOf(store.add).returns.resolves.toBeNever();
+    await rejects(async () => store.add({ bool: false, boolOrNum: 0 }));
+    expectTypeOf(store.get).parameter(0).toBeNever();
+    expectTypeOf(store.get).returns.resolves.toEqualTypeOf<unknown>();
+    await tx.done.catch(() => {});
+  });
+
+  await t.test("key path to invalid key value is never", async (t) => {
+    const tx = db.transaction(["invalid"], "readwrite");
+    const store = tx.objectStore("invalid");
+    const idx = store.index("byBool");
+    expectTypeOf(idx.get).parameter(0).toBeNever();
+    expectTypeOf(idx.get).returns.resolves.toEqualTypeOf<unknown>();
+    await tx.done;
+  });
+
+  await t.test("key path to optional value is non-optional", async (t) => {
+    const tx = db.transaction(["invalid"], "readwrite");
+    const store = tx.objectStore("invalid");
+    const idx = store.index("byMaybeStr");
+    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
+    expectTypeOf(idx.get).returns.resolves.toEqualTypeOf<Value>();
+    await tx.done;
+  });
+
+  await t.test("key path to partially-invalid value extracts valid key types", async (t) => {
+    const tx = db.transaction(["invalid"], "readwrite");
+    const store = tx.objectStore("invalid");
+    const idx = store.index("byBoolOrNum");
+    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<number>();
+    expectTypeOf(idx.get).returns.resolves.toEqualTypeOf<Value>();
+    await tx.done;
+  });
+
+  await t.test("key path to unknown is never (?)", async (t) => {
+    const tx = db.transaction(["invalid"], "readwrite");
+    const store = tx.objectStore("invalid");
+    const idx = store.index("byUnknown");
+    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<never>();
+    expectTypeOf(idx.get).returns.resolves.toEqualTypeOf<unknown>();
+    await tx.done;
+  });
+
+  db.close();
+});
+
+test("special properties", async (t) => {
+  const valueSchema = schema<{
+    str: string;
+    arr: unknown[];
+    blob: Blob;
+    file: File;
+  }>();
+  const db = await openTIDB("special-properties", 1, {
+    special: {
+      autoIncrement: true,
+      value: valueSchema,
+      indexes: {
+        byStrLen: { keyPath: "str.length" },
+        byArrLen: { keyPath: "arr.length" },
+        byBlobSize: { keyPath: "blob.size" },
+        byFileType: { keyPath: "file.type" },
+      },
+    },
+  });
+
+  const blob = new Blob(["123"], { type: "text/plain" });
+  const file = new File(["1234"], "test", { type: "text/plain" });
+  {
+    const tx = db.transaction(["special"], "readwrite");
+    await tx.objectStore("special").add({ str: "12", arr: [1], blob, file });
+    await tx.done;
+  }
+
+  await t.test("string length index", async (t) => {
+    const tx = db.transaction(["special"], "readwrite");
+    const store = tx.objectStore("special");
+    const idx = store.index("byStrLen");
+    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<number>();
+    partialDeepStrictEqual(await idx.get(2), { str: "12", arr: [1] });
+    await tx.done;
+  });
+
+  await t.test("array length index", async (t) => {
+    const tx = db.transaction(["special"], "readwrite");
+    const store = tx.objectStore("special");
+    const idx = store.index("byArrLen");
+    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<number>();
+    partialDeepStrictEqual(await idx.get(1), { str: "12", arr: [1] });
+    await tx.done;
+  });
+
+  await t.test("blob size index", async (t) => {
+    const tx = db.transaction(["special"], "readwrite");
+    const store = tx.objectStore("special");
+    const idx = store.index("byBlobSize");
+    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<number>();
+    partialDeepStrictEqual(await idx.get(3), { str: "12", arr: [1] });
+    await tx.done;
+  });
+
+  await t.test("file type index", async (t) => {
+    const tx = db.transaction(["special"], "readwrite");
+    const store = tx.objectStore("special");
+    const idx = store.index("byFileType");
+    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
+    partialDeepStrictEqual(await idx.get("text/plain"), { str: "12", arr: [1] });
+    await tx.done;
+  });
+
+  db.close();
+});
+
+test("array key and index", async (t) => {
+  type Value = {
+    coords: [x: number, y: number];
+    label: [title: string, subtitle: string];
+  };
+  const db = await openTIDB("array-key+index", 1, {
+    points: {
+      keyPath: "coords",
+      value: schema<Value>(),
+      indexes: {
+        byLabel: { keyPath: "label" },
+      },
+    },
+  });
+
+  await t.test("array key", async (t) => {
+    const tx = db.transaction(["points"], "readwrite");
+    const store = tx.objectStore("points");
+    expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
+    expectTypeOf(store.add).returns.resolves.toEqualTypeOf<[number, number]>();
+    deepEqual(await store.add({ coords: [1, 2], label: ["foo", "bar"] }), [1, 2]);
+    expectTypeOf(store.get).parameter(0).toEqualTypeOf<[number, number]>();
+    deepEqual(await store.get([1, 2]), { coords: [1, 2], label: ["foo", "bar"] });
+    await tx.done;
+  });
+
+  await t.test("array index", async (t) => {
+    const tx = db.transaction(["points"], "readwrite");
+    const store = tx.objectStore("points");
+    const idx = store.index("byLabel");
+    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<[string, string]>();
+    deepEqual(await idx.get(["foo", "bar"]), { coords: [1, 2], label: ["foo", "bar"] });
+    await tx.done;
+  });
+
+  db.close();
+});
+
+test("compound key and index", async (t) => {
+  type Value = {
+    x: number;
+    y: number;
+    title: string;
+    subtitle: string;
+  };
+  const db = await openTIDB("compound-key+index", 1, {
+    points: {
+      keyPath: ["x", "y"],
+      value: schema<Value>(),
+      indexes: {
+        byLabel: { keyPath: ["title", "subtitle"] },
+      },
+    },
+  });
+
+  await t.test("compound key", async (t) => {
+    const tx = db.transaction(["points"], "readwrite");
+    const store = tx.objectStore("points");
+    expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
+    expectTypeOf(store.add).returns.resolves.toEqualTypeOf<[number, number]>();
+    deepEqual(await store.add({ x: 1, y: 2, title: "foo", subtitle: "bar" }), [1, 2]);
+    expectTypeOf(store.get).parameter(0).toEqualTypeOf<[number, number]>();
+    deepEqual(await store.get([1, 2]), { x: 1, y: 2, title: "foo", subtitle: "bar" });
+    await tx.done;
+  });
+
+  await t.test("compound index", async (t) => {
+    const tx = db.transaction(["points"], "readwrite");
+    const store = tx.objectStore("points");
+    const idx = store.index("byLabel");
+    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<[string, string]>();
+    deepEqual(await idx.get(["foo", "bar"]), { x: 1, y: 2, title: "foo", subtitle: "bar" });
+    await tx.done;
+  });
+
+  db.close();
+});
+
+test("multi entry index", async (t) => {
+  type Value = {
+    id: string;
+    tags: string[];
+    category?: null | number | number[];
+  };
+  const db = await openTIDB("multi-entry-index", 1, {
+    posts: {
+      keyPath: "id",
+      value: schema<Value>(),
+      indexes: {
+        byTag: { keyPath: "tags", multiEntry: true },
+        byCategory: { keyPath: "category", multiEntry: true },
+      },
+    },
+  });
+
+  {
+    const tx = db.transaction(["posts"], "readwrite");
+    const store = tx.objectStore("posts");
+    deepEqual(await store.add({ id: "1", tags: ["foo"], category: 1 }), "1");
+    await tx.done;
+  }
+
+  await t.test("multi entry index flattens array type", async (t) => {
+    const tx = db.transaction(["posts"], "readwrite");
+    const store = tx.objectStore("posts");
+    const idx = store.index("byTag");
+    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
+    deepEqual(await idx.get("foo"), { id: "1", tags: ["foo"], category: 1 });
+    await tx.done;
+  });
+
+  await t.test("multi entry index of maybe-array flattens array type", async (t) => {
+    const tx = db.transaction(["posts"], "readwrite");
+    const store = tx.objectStore("posts");
+    const idx = store.index("byCategory");
+    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<number>();
+    deepEqual(await idx.get(1), { id: "1", tags: ["foo"], category: 1 });
+    await tx.done;
+  });
+
+  db.close();
+});
+
+test("multi entry compound index", async (t) => {
+  type Value = { num: number; str: string };
+  await rejects(async () =>
+    openTIDB("multi-entry-compound-index", 1, {
+      things: {
+        key: schema<number>(),
+        value: schema<Value>(),
+        indexes: {
+          byValue: { keyPath: ["str", "num"], multiEntry: true },
+        },
+      },
+    }),
+  );
+});

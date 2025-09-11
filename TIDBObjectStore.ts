@@ -1,0 +1,150 @@
+import { idbReqToPromise } from "./idbReqToPromise.ts";
+import type { SchemaValue, StandardSchema, schema } from "./StandardSchema.ts";
+import { TIDBIndex, type TIDBIndexSchema } from "./TIDBIndex.ts";
+import type { TIDBKeyRange, MaybeTIDBKeyRange } from "./TIDBKeyRange.ts";
+import type { TIDBTransactionMode } from "./TIDBTransaction.ts";
+import type { IDBValuesAtPaths } from "./IDBValueAtPaths.ts";
+
+/**
+ * A schema for a {@link TIDBObjectStore}.
+ */
+export interface TIDBObjectStoreSchema extends IDBObjectStoreParameters {
+  /**
+   * The schema of the external key.
+   *
+   * External keys are passed to {@link TIDBObjectStore.add} and {@link TIDBObjectStore.put} as a separate argument.
+   *
+   * Alternatively, an inline key can be defined by specifying the {@link keyPath} property.
+   */
+  key?: StandardSchema<IDBValidKey>;
+  /**
+   * The schema of the value.
+   *
+   * This can be any StandardSchema-compatible schema.
+   * Use {@link schema} to create a noop schema.
+   */
+  value: StandardSchema<unknown>;
+  /**
+   * The schemas of the indexes.
+   *
+   * This is a map of index names to their schemas.
+   */
+  indexes?: Record<string, TIDBIndexSchema>;
+}
+
+/**
+ * A wrapper for {@link IDBObjectStore} with more strict types.
+ */
+export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema, const Mode extends TIDBTransactionMode> {
+  #store: IDBObjectStore;
+
+  constructor(store: IDBObjectStore) {
+    this.#store = store;
+  }
+
+  /**
+   * Adds a new record to the object store.
+   *
+   * @see {@link IDBObjectStore.add}
+   */
+  add(
+    ...[value, key]: WriteOnlyArgs<
+      Mode,
+      [value: SchemaValue<StoreSchema["value"]>, ...OptionalArg<TIDBObjectStoreInputKey<StoreSchema>>]
+    >
+  ): Promise<TIDBObjectStoreOutputKey<StoreSchema>> {
+    return idbReqToPromise(this.#store.add(value, key)) as Promise<TIDBObjectStoreOutputKey<StoreSchema>>;
+  }
+
+  /**
+   * Adds or replaces a record in the object store.
+   *
+   * @see {@link IDBObjectStore.put}
+   */
+  put(
+    ...[value, key]: WriteOnlyArgs<
+      Mode,
+      [value: SchemaValue<StoreSchema["value"]>, ...OptionalArg<TIDBObjectStoreInputKey<StoreSchema>>]
+    >
+  ): Promise<TIDBObjectStoreOutputKey<StoreSchema>> {
+    return idbReqToPromise(this.#store.put(value, key)) as Promise<TIDBObjectStoreOutputKey<StoreSchema>>;
+  }
+
+  /**
+   * Retrieves a record from the object store by its key.
+   *
+   * @see {@link IDBObjectStore.get}
+   */
+  get(key: TIDBObjectStoreOutputKey<StoreSchema>): Promise<SchemaValue<StoreSchema["value"]>> {
+    return idbReqToPromise(this.#store.get(key));
+  }
+
+  /**
+   * Retrieves a range of records from the object store by their keys.
+   *
+   * @see {@link IDBObjectStore.getAll}
+   */
+  getAll(range?: TIDBKeyRange<TIDBObjectStoreOutputKey<StoreSchema>>): Promise<SchemaValue<StoreSchema["value"]>[]> {
+    return idbReqToPromise(this.#store.getAll(range));
+  }
+
+  /**
+   * Deletes a record or range of records from the object store by their keys.
+   *
+   * @see {@link IDBObjectStore.delete}
+   */
+  delete(...[key]: WriteOnlyArgs<Mode, [MaybeTIDBKeyRange<TIDBObjectStoreOutputKey<StoreSchema>>]>): Promise<void> {
+    return idbReqToPromise(this.#store.delete(key));
+  }
+
+  /**
+   * Access an index of the object store.
+   *
+   * @see {@link IDBObjectStore.index}
+   */
+  index<const IndexName extends keyof StoreSchema["indexes"] & string>(
+    indexName: IndexName,
+  ): TIDBIndex<StoreSchema, IndexName> {
+    return new TIDBIndex(this.#store.index(indexName));
+  }
+
+  /**
+   * Deletes all records from the object store.
+   *
+   * @see {@link IDBObjectStore.clear}
+   */
+  clear(...[]: WriteOnlyArgs<Mode, []>): Promise<void> {
+    return idbReqToPromise(this.#store.clear());
+  }
+}
+
+/**
+ * Infer a key type for inserting into the object store based on the store schema.
+ *
+ * It can be either the defined key type or undefined if the store has an auto-incrementing key.
+ */
+export type TIDBObjectStoreInputKey<StoreSchema extends TIDBObjectStoreSchema> =
+  | SchemaValue<StoreSchema["key"]>
+  | (StoreSchema["autoIncrement"] extends true ? undefined : never);
+
+/**
+ * Infer a key type retrieved from the object store based on the store schema.
+ *
+ * It can be either the defined key type, auto-incrementing number, or a type at the specified key path.
+ */
+export type TIDBObjectStoreOutputKey<StoreSchema extends TIDBObjectStoreSchema> =
+  | SchemaValue<StoreSchema["key"]>
+  | (StoreSchema["autoIncrement"] extends true ? number : never)
+  | IDBValuesAtPaths<SchemaValue<StoreSchema["value"]>, StoreSchema["keyPath"]>;
+
+/**
+ * Create a tuple with element of the given type which is optional if the type is nullable.
+ */
+export type OptionalArg<T> = [T] extends [never] ? [undefined?] : undefined extends T ? [T?] : [T];
+
+/**
+ * Replace all tuple values with never if the mode is readonly.
+ */
+export type WriteOnlyArgs<Mode extends TIDBTransactionMode, Args extends readonly unknown[]> = Mode extends "readwrite"
+  ? Args
+  : [unavailableInReadOnlyMode: never];
