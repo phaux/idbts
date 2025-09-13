@@ -5,7 +5,7 @@ import { ok } from "node:assert/strict";
 import { test } from "node:test";
 import { minKey, maxKey, TIDBKeyRange } from "./TIDBKeyRange.ts";
 
-test("primitive values", async (t) => {
+test("primitive key ranges", async (t) => {
   await t.test("only", () => {
     expectTypeOf(TIDBKeyRange.only<string>).parameters.toEqualTypeOf<[string]>();
     const r: TIDBKeyRange<string> = TIDBKeyRange.only("m");
@@ -62,7 +62,7 @@ test("primitive values", async (t) => {
   });
 });
 
-test("array values", async (t) => {
+test("array key ranges", async (t) => {
   await t.test("only", () => {
     expectTypeOf(TIDBKeyRange.only<[string, number]>).parameters.toEqualTypeOf<[[string, number]]>();
     const r: TIDBKeyRange<[string, number]> = TIDBKeyRange.only(["m", 1]);

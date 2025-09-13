@@ -1,5 +1,6 @@
 import type { TIDBObjectStoreSchema } from "./TIDBObjectStore.ts";
 import { TIDBTransaction, type TIDBTransactionMode } from "./TIDBTransaction.ts";
+import type { MaybeArray, ToArray } from "./typeUtils.ts";
 
 /**
  * A schema for a {@link TIDBDatabase}.
@@ -32,12 +33,15 @@ export class TIDBDatabase<const DatabaseSchema extends TIDBDatabaseSchema> {
    *
    * @see {@link IDBDatabase.transaction}
    */
-  transaction<const StoreNames extends (keyof DatabaseSchema & string)[], Mode extends TIDBTransactionMode>(
+  transaction<
+    const StoreNames extends MaybeArray<keyof DatabaseSchema & string>,
+    const Mode extends TIDBTransactionMode = "readonly",
+  >(
     storeNames: StoreNames,
-    mode: Mode,
+    mode?: Mode,
     options?: IDBTransactionOptions,
-  ): TIDBTransaction<DatabaseSchema, StoreNames[number], Mode> {
-    return new TIDBTransaction(this.#db.transaction(storeNames, mode, options));
+  ): TIDBTransaction<DatabaseSchema, ToArray<StoreNames>, Mode> {
+    return new TIDBTransaction(this.#db.transaction(storeNames as string | string[], mode, options));
   }
 
   /**

@@ -1,9 +1,9 @@
 import { idbReqToPromise } from "./idbReqToPromise.ts";
+import type { IDBValuesAtPaths } from "./IDBValueAtPaths.ts";
 import type { SchemaValue, StandardSchema, schema } from "./StandardSchema.ts";
 import { TIDBIndex, type TIDBIndexSchema } from "./TIDBIndex.ts";
-import type { TIDBKeyRange, MaybeTIDBKeyRange } from "./TIDBKeyRange.ts";
-import type { TIDBTransactionMode } from "./TIDBTransaction.ts";
-import type { IDBValuesAtPaths } from "./IDBValueAtPaths.ts";
+import type { MaybeTIDBKeyRange, TIDBKeyRange } from "./TIDBKeyRange.ts";
+import type { OptionalArg } from "./typeUtils.ts";
 
 /**
  * A schema for a {@link TIDBObjectStore}.
@@ -35,7 +35,7 @@ export interface TIDBObjectStoreSchema extends IDBObjectStoreParameters {
 /**
  * A wrapper for {@link IDBObjectStore} with more strict types.
  */
-export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema, const Mode extends TIDBTransactionMode> {
+export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
   #store: IDBObjectStore;
 
   constructor(store: IDBObjectStore) {
@@ -48,10 +48,8 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema, co
    * @see {@link IDBObjectStore.add}
    */
   add(
-    ...[value, key]: WriteOnlyArgs<
-      Mode,
-      [value: SchemaValue<StoreSchema["value"]>, ...OptionalArg<TIDBObjectStoreInputKey<StoreSchema>>]
-    >
+    value: SchemaValue<StoreSchema["value"]>,
+    ...[key]: OptionalArg<TIDBObjectStoreInputKey<StoreSchema>>
   ): Promise<TIDBObjectStoreOutputKey<StoreSchema>> {
     return idbReqToPromise(this.#store.add(value, key)) as Promise<TIDBObjectStoreOutputKey<StoreSchema>>;
   }
@@ -62,10 +60,8 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema, co
    * @see {@link IDBObjectStore.put}
    */
   put(
-    ...[value, key]: WriteOnlyArgs<
-      Mode,
-      [value: SchemaValue<StoreSchema["value"]>, ...OptionalArg<TIDBObjectStoreInputKey<StoreSchema>>]
-    >
+    value: SchemaValue<StoreSchema["value"]>,
+    ...[key]: OptionalArg<TIDBObjectStoreInputKey<StoreSchema>>
   ): Promise<TIDBObjectStoreOutputKey<StoreSchema>> {
     return idbReqToPromise(this.#store.put(value, key)) as Promise<TIDBObjectStoreOutputKey<StoreSchema>>;
   }
@@ -93,7 +89,7 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema, co
    *
    * @see {@link IDBObjectStore.delete}
    */
-  delete(...[key]: WriteOnlyArgs<Mode, [MaybeTIDBKeyRange<TIDBObjectStoreOutputKey<StoreSchema>>]>): Promise<void> {
+  delete(key: MaybeTIDBKeyRange<TIDBObjectStoreOutputKey<StoreSchema>>): Promise<void> {
     return idbReqToPromise(this.#store.delete(key));
   }
 
@@ -113,10 +109,20 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema, co
    *
    * @see {@link IDBObjectStore.clear}
    */
-  clear(...[]: WriteOnlyArgs<Mode, []>): Promise<void> {
+  clear(): Promise<void> {
     return idbReqToPromise(this.#store.clear());
   }
 }
+
+/**
+ * A readonly version of {@link TIDBObjectStore}.
+ *
+ * It omits the methods that modify the object store.
+ */
+export type TIDBReadOnlyObjectStore<StoreSchema extends TIDBObjectStoreSchema> = Omit<
+  TIDBObjectStore<StoreSchema>,
+  "add" | "put" | "delete" | "clear"
+>;
 
 /**
  * Infer a key type for inserting into the object store based on the store schema.
@@ -136,15 +142,3 @@ export type TIDBObjectStoreOutputKey<StoreSchema extends TIDBObjectStoreSchema> 
   | SchemaValue<StoreSchema["key"]>
   | (StoreSchema["autoIncrement"] extends true ? number : never)
   | IDBValuesAtPaths<SchemaValue<StoreSchema["value"]>, StoreSchema["keyPath"]>;
-
-/**
- * Create a tuple with element of the given type which is optional if the type is nullable.
- */
-export type OptionalArg<T> = [T] extends [never] ? [undefined?] : undefined extends T ? [T?] : [T];
-
-/**
- * Replace all tuple values with never if the mode is readonly.
- */
-export type WriteOnlyArgs<Mode extends TIDBTransactionMode, Args extends readonly unknown[]> = Mode extends "readwrite"
-  ? Args
-  : [unavailableInReadOnlyMode: never];

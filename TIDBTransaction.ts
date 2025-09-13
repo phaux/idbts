@@ -1,12 +1,13 @@
-import { TIDBObjectStore } from "./TIDBObjectStore.ts";
 import type { TIDBDatabaseSchema } from "./TIDBDatabase.ts";
+import { TIDBObjectStore, type TIDBReadOnlyObjectStore } from "./TIDBObjectStore.ts";
+import type { ElementsUnlessSingle, OptionalArg, Or } from "./typeUtils.ts";
 
 /**
  * A wrapper for {@link IDBTransaction} with more strict types.
  */
 export class TIDBTransaction<
   const DatabaseSchema extends TIDBDatabaseSchema,
-  const StoreNames extends keyof DatabaseSchema & string,
+  const StoreNames extends readonly (keyof DatabaseSchema)[],
   const Mode extends TIDBTransactionMode,
 > {
   #tx: IDBTransaction;
@@ -20,10 +21,13 @@ export class TIDBTransaction<
    *
    * @see {@link IDBTransaction.objectStore}
    */
-  objectStore<const StoreName extends StoreNames>(
-    storeName: StoreName,
-  ): TIDBObjectStore<DatabaseSchema[StoreName], Mode> {
-    return new TIDBObjectStore(this.#tx.objectStore(storeName));
+  objectStore<const StoreName extends ElementsUnlessSingle<StoreNames>>(
+    ...[storeName]: OptionalArg<StoreName>
+  ): Mode extends "readwrite"
+    ? TIDBObjectStore<DatabaseSchema[Or<StoreName, StoreNames[number]>]>
+    : TIDBReadOnlyObjectStore<DatabaseSchema[Or<StoreName, StoreNames[number]>]> {
+    const name = storeName ?? this.#tx.objectStoreNames[0]!;
+    return new TIDBObjectStore(this.#tx.objectStore(name as string));
   }
 
   /**

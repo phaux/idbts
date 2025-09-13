@@ -20,7 +20,9 @@ test("kv store", async (t) => {
     },
   });
 
-  expectTypeOf(db.transaction).parameter(0).toEqualTypeOf<("num2str" | "str2unknown")[]>();
+  expectTypeOf(db.transaction)
+    .parameter(0)
+    .toEqualTypeOf<"num2str" | "str2unknown" | readonly ("num2str" | "str2unknown")[]>();
 
   await t.test("object stores in transaction", async (t) => {
     const tx = db.transaction(["num2str", "str2unknown"], "readonly");
@@ -30,7 +32,7 @@ test("kv store", async (t) => {
 
   await t.test("number to string", async (t) => {
     const tx = db.transaction(["num2str"], "readwrite");
-    expectTypeOf(tx.objectStore).parameter(0).toEqualTypeOf<"num2str">();
+    expectTypeOf(tx.objectStore).parameter(0).toEqualTypeOf<"num2str" | undefined>();
     const store = tx.objectStore("num2str");
     expectTypeOf(store.add).parameter(0).toEqualTypeOf<string>();
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<number>();
@@ -45,8 +47,8 @@ test("kv store", async (t) => {
   });
 
   await t.test("string to unknown", async (t) => {
-    const tx = db.transaction(["str2unknown"], "readwrite");
-    expectTypeOf(tx.objectStore).parameter(0).toEqualTypeOf<"str2unknown">();
+    const tx = db.transaction("str2unknown", "readwrite");
+    expectTypeOf(tx.objectStore).parameter(0).toEqualTypeOf<"str2unknown" | undefined>();
     const store = tx.objectStore("str2unknown");
     expectTypeOf(store.add).parameter(0).toEqualTypeOf<unknown>();
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<string>();
@@ -59,13 +61,22 @@ test("kv store", async (t) => {
     await tx.done;
   });
 
-  await t.test("in readonly transaction write methods use never", async (t) => {
-    const tx = db.transaction(["num2str"], "readonly");
+  await t.test("readonly transaction doesn't have write methods", async (t) => {
+    const tx = db.transaction("num2str");
     const store = tx.objectStore("num2str");
-    expectTypeOf(store.add).parameter(0).toBeNever();
-    expectTypeOf(store.put).parameter(0).toBeNever();
-    expectTypeOf(store.delete).parameter(0).toBeNever();
-    expectTypeOf(store.clear).parameter(0).toBeNever();
+    expectTypeOf(store).not.toHaveProperty("add");
+    expectTypeOf(store).not.toHaveProperty("put");
+    expectTypeOf(store).not.toHaveProperty("delete");
+    expectTypeOf(store).not.toHaveProperty("clear");
+    await tx.done;
+  });
+
+  await t.test("1 store transaction doesn't require to specify store name", async (t) => {
+    const tx = db.transaction("num2str");
+    const store = tx.objectStore();
+    expectTypeOf(store.get).parameter(0).toEqualTypeOf<number>();
+    expectTypeOf(store.get).returns.resolves.toEqualTypeOf<string>();
+    deepEqual(await store.get(1), "value");
     await tx.done;
   });
 
@@ -87,7 +98,7 @@ test("autoIncrement key", async (t) => {
   });
 
   await t.test("input key can be undefined when autoIncrement is true", async (t) => {
-    const tx = db.transaction(["numbered"], "readwrite");
+    const tx = db.transaction("numbered", "readwrite");
     const store = tx.objectStore("numbered");
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<number | undefined>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<number>();
@@ -98,7 +109,7 @@ test("autoIncrement key", async (t) => {
   });
 
   await t.test("output key includes number when autoIncrement is true", async (t) => {
-    const tx = db.transaction(["named"], "readwrite");
+    const tx = db.transaction("named", "readwrite");
     const store = tx.objectStore("named");
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<string | undefined>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<string | number>();
@@ -140,7 +151,7 @@ test("inline key and index", async (t) => {
   });
 
   await t.test("num key from prop", async (t) => {
-    const tx = db.transaction(["num2name"], "readwrite");
+    const tx = db.transaction("num2name", "readwrite");
     const store = tx.objectStore("num2name");
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<number>();
@@ -151,7 +162,7 @@ test("inline key and index", async (t) => {
   });
 
   await t.test("string index", async (t) => {
-    const tx = db.transaction(["num2name"], "readonly");
+    const tx = db.transaction("num2name");
     const store = tx.objectStore("num2name");
     const idx = store.index("byName");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
@@ -162,7 +173,7 @@ test("inline key and index", async (t) => {
   const now = new Date();
 
   await t.test("union key from prop", async (t) => {
-    const tx = db.transaction(["union2date"], "readwrite");
+    const tx = db.transaction("union2date", "readwrite");
     const store = tx.objectStore("union2date");
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<number | string>();
@@ -173,7 +184,7 @@ test("inline key and index", async (t) => {
   });
 
   await t.test("date index", async (t) => {
-    const tx = db.transaction(["union2date"], "readonly");
+    const tx = db.transaction("union2date");
     const store = tx.objectStore("union2date");
     const idx = store.index("byDate");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<Date>();
@@ -199,7 +210,7 @@ test("deeply nested key and index", async (t) => {
   });
 
   await t.test("deeply nested key", async (t) => {
-    const tx = db.transaction(["deeplyNested"], "readwrite");
+    const tx = db.transaction("deeplyNested", "readwrite");
     const store = tx.objectStore("deeplyNested");
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<string | number>();
@@ -210,7 +221,7 @@ test("deeply nested key and index", async (t) => {
   });
 
   await t.test("deeply nested index", async (t) => {
-    const tx = db.transaction(["deeplyNested"], "readonly");
+    const tx = db.transaction("deeplyNested");
     const store = tx.objectStore("deeplyNested");
     const idx = store.index("byBaz");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
@@ -250,7 +261,7 @@ test("invalid key path", async (t) => {
   });
 
   await t.test("non existent key path is never", async (t) => {
-    const tx = db.transaction(["invalid"], "readwrite");
+    const tx = db.transaction("invalid", "readwrite");
     const store = tx.objectStore("invalid");
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
     expectTypeOf(store.add).returns.resolves.toBeNever();
@@ -261,7 +272,7 @@ test("invalid key path", async (t) => {
   });
 
   await t.test("key path to invalid key value is never", async (t) => {
-    const tx = db.transaction(["invalid"], "readwrite");
+    const tx = db.transaction("invalid", "readwrite");
     const store = tx.objectStore("invalid");
     const idx = store.index("byBool");
     expectTypeOf(idx.get).parameter(0).toBeNever();
@@ -270,7 +281,7 @@ test("invalid key path", async (t) => {
   });
 
   await t.test("key path to optional value is non-optional", async (t) => {
-    const tx = db.transaction(["invalid"], "readwrite");
+    const tx = db.transaction("invalid", "readwrite");
     const store = tx.objectStore("invalid");
     const idx = store.index("byMaybeStr");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
@@ -279,7 +290,7 @@ test("invalid key path", async (t) => {
   });
 
   await t.test("key path to partially-invalid value extracts valid key types", async (t) => {
-    const tx = db.transaction(["invalid"], "readwrite");
+    const tx = db.transaction("invalid", "readwrite");
     const store = tx.objectStore("invalid");
     const idx = store.index("byBoolOrNum");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<number>();
@@ -288,7 +299,7 @@ test("invalid key path", async (t) => {
   });
 
   await t.test("key path to unknown is never (?)", async (t) => {
-    const tx = db.transaction(["invalid"], "readwrite");
+    const tx = db.transaction("invalid", "readwrite");
     const store = tx.objectStore("invalid");
     const idx = store.index("byUnknown");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<never>();
@@ -322,13 +333,13 @@ test("special properties", async (t) => {
   const blob = new Blob(["123"], { type: "text/plain" });
   const file = new File(["1234"], "test", { type: "text/plain" });
   {
-    const tx = db.transaction(["special"], "readwrite");
+    const tx = db.transaction("special", "readwrite");
     await tx.objectStore("special").add({ str: "12", arr: [1], blob, file });
     await tx.done;
   }
 
   await t.test("string length index", async (t) => {
-    const tx = db.transaction(["special"], "readwrite");
+    const tx = db.transaction("special", "readwrite");
     const store = tx.objectStore("special");
     const idx = store.index("byStrLen");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<number>();
@@ -337,7 +348,7 @@ test("special properties", async (t) => {
   });
 
   await t.test("array length index", async (t) => {
-    const tx = db.transaction(["special"], "readwrite");
+    const tx = db.transaction("special", "readwrite");
     const store = tx.objectStore("special");
     const idx = store.index("byArrLen");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<number>();
@@ -346,7 +357,7 @@ test("special properties", async (t) => {
   });
 
   await t.test("blob size index", async (t) => {
-    const tx = db.transaction(["special"], "readwrite");
+    const tx = db.transaction("special", "readwrite");
     const store = tx.objectStore("special");
     const idx = store.index("byBlobSize");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<number>();
@@ -355,7 +366,7 @@ test("special properties", async (t) => {
   });
 
   await t.test("file type index", async (t) => {
-    const tx = db.transaction(["special"], "readwrite");
+    const tx = db.transaction("special", "readwrite");
     const store = tx.objectStore("special");
     const idx = store.index("byFileType");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
@@ -382,7 +393,7 @@ test("array key and index", async (t) => {
   });
 
   await t.test("array key", async (t) => {
-    const tx = db.transaction(["points"], "readwrite");
+    const tx = db.transaction("points", "readwrite");
     const store = tx.objectStore("points");
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<[number, number]>();
@@ -393,7 +404,7 @@ test("array key and index", async (t) => {
   });
 
   await t.test("array index", async (t) => {
-    const tx = db.transaction(["points"], "readwrite");
+    const tx = db.transaction("points", "readwrite");
     const store = tx.objectStore("points");
     const idx = store.index("byLabel");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<[string, string]>();
@@ -422,7 +433,7 @@ test("compound key and index", async (t) => {
   });
 
   await t.test("compound key", async (t) => {
-    const tx = db.transaction(["points"], "readwrite");
+    const tx = db.transaction("points", "readwrite");
     const store = tx.objectStore("points");
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<[number, number]>();
@@ -433,7 +444,7 @@ test("compound key and index", async (t) => {
   });
 
   await t.test("compound index", async (t) => {
-    const tx = db.transaction(["points"], "readwrite");
+    const tx = db.transaction("points", "readwrite");
     const store = tx.objectStore("points");
     const idx = store.index("byLabel");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<[string, string]>();
@@ -462,14 +473,14 @@ test("multi entry index", async (t) => {
   });
 
   {
-    const tx = db.transaction(["posts"], "readwrite");
+    const tx = db.transaction("posts", "readwrite");
     const store = tx.objectStore("posts");
     deepEqual(await store.add({ id: "1", tags: ["foo"], category: 1 }), "1");
     await tx.done;
   }
 
   await t.test("multi entry index flattens array type", async (t) => {
-    const tx = db.transaction(["posts"], "readwrite");
+    const tx = db.transaction("posts", "readwrite");
     const store = tx.objectStore("posts");
     const idx = store.index("byTag");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
@@ -478,7 +489,7 @@ test("multi entry index", async (t) => {
   });
 
   await t.test("multi entry index of maybe-array flattens array type", async (t) => {
-    const tx = db.transaction(["posts"], "readwrite");
+    const tx = db.transaction("posts", "readwrite");
     const store = tx.objectStore("posts");
     const idx = store.index("byCategory");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<number>();
