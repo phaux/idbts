@@ -67,6 +67,27 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
   }
 
   /**
+   * Updates a record in the object store using the provided updater function.
+   *
+   * Updater is called with the current value of the record or undefined if the record doesn't exist.
+   * If the updater returns undefined, the record will be deleted.
+   */
+  async update(
+    key: TIDBObjectStoreOutputKey<StoreSchema>,
+    updater: (value: SchemaValue<StoreSchema["value"]> | undefined) => SchemaValue<StoreSchema["value"]> | undefined,
+  ): Promise<TIDBObjectStoreOutputKey<StoreSchema> | undefined> {
+    const oldValue = await this.get(key);
+    const newValue = updater(oldValue);
+    if (newValue != null) {
+      const newKey = await this.put(newValue, this.#store.keyPath ? undefined : (key as any));
+      // Delete old entry if key changed.
+      if (indexedDB.cmp(key, newKey) !== 0) await this.delete(key);
+      return newKey;
+    }
+    if (oldValue != null) await this.delete(key);
+  }
+
+  /**
    * Retrieves a record from the object store by its key.
    *
    * @see {@link IDBObjectStore.get}

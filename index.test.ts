@@ -80,6 +80,42 @@ test("kv store", async (t) => {
     await tx.done;
   });
 
+  await t.test("update", async (t) => {
+    const tx = db.transaction("num2str", "readwrite");
+    const store = tx.objectStore("num2str");
+    const key = await store.update(1, (value) => value + "!");
+    deepEqual(key, 1);
+    deepEqual(await store.get(1), "value!");
+    await tx.done;
+  });
+
+  await t.test("update can create entry", async (t) => {
+    const tx = db.transaction("num2str", "readwrite");
+    const store = tx.objectStore("num2str");
+    const key = await store.update(2, (value) => (value ?? "new") + "!");
+    deepEqual(key, 2);
+    deepEqual(await store.get(2), "new!");
+    await tx.done;
+  });
+
+  await t.test("update can delete entry", async (t) => {
+    const tx = db.transaction("num2str", "readwrite");
+    const store = tx.objectStore("num2str");
+    const key = await store.update(2, (value) => undefined);
+    deepEqual(key, undefined);
+    deepEqual(await store.getAll(TIDBKeyRange.only(2)), []);
+    await tx.done;
+  });
+
+  await t.test("update does nothing on undefined", async (t) => {
+    const tx = db.transaction("num2str", "readwrite");
+    const store = tx.objectStore("num2str");
+    const key = await store.update(2, (value) => undefined);
+    deepEqual(key, undefined);
+    deepEqual(await store.getAll(TIDBKeyRange.only(2)), []);
+    await tx.done;
+  });
+
   db.close();
 });
 
@@ -189,6 +225,52 @@ test("inline key and index", async (t) => {
     const idx = store.index("byDate");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<Date>();
     deepEqual(await idx.get(now), { id: 1, created: now });
+    await tx.done;
+  });
+
+  await t.test("update", async (t) => {
+    const tx = db.transaction("num2name", "readwrite");
+    const store = tx.objectStore("num2name");
+    const key = await store.update(1, (value) => value && { ...value, name: value.name + "!" });
+    deepEqual(key, 1);
+    deepEqual(await store.get(1), { id: 1, name: "foo!" });
+    await tx.done;
+  });
+
+  await t.test("update can create entry", async (t) => {
+    const tx = db.transaction("num2name", "readwrite");
+    const store = tx.objectStore("num2name");
+    const key = await store.update(2, (value) => ({ id: 2, name: (value?.name ?? "new") + "!" }));
+    deepEqual(key, 2);
+    deepEqual(await store.get(2), { id: 2, name: "new!" });
+    await tx.done;
+  });
+
+  await t.test("update can delete entry", async (t) => {
+    const tx = db.transaction("num2name", "readwrite");
+    const store = tx.objectStore("num2name");
+    const key = await store.update(2, () => undefined);
+    deepEqual(key, undefined);
+    deepEqual(await store.getAll(TIDBKeyRange.only(2)), []);
+    await tx.done;
+  });
+
+  await t.test("update does nothing on undefined", async (t) => {
+    const tx = db.transaction("num2name", "readwrite");
+    const store = tx.objectStore("num2name");
+    const key = await store.update(2, () => undefined);
+    deepEqual(key, undefined);
+    deepEqual(await store.getAll(TIDBKeyRange.only(3)), []);
+    await tx.done;
+  });
+
+  await t.test("deletes old entry if key changed", async (t) => {
+    const tx = db.transaction("num2name", "readwrite");
+    const store = tx.objectStore("num2name");
+    const key = await store.update(1, (value) => value && { ...value, id: 2 });
+    deepEqual(key, 2);
+    deepEqual(await store.getAll(TIDBKeyRange.only(1)), []);
+    deepEqual(await store.getAll(TIDBKeyRange.only(2)), [{ id: 2, name: "foo!" }]);
     await tx.done;
   });
 
