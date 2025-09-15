@@ -41,7 +41,8 @@ test("kv store", async (t) => {
     expectTypeOf(store.get).parameter(0).toEqualTypeOf<number>();
     expectTypeOf(store.get).returns.resolves.toEqualTypeOf<string>();
     deepEqual(await store.get(1), "value");
-    deepEqual(await store.getAll(TIDBKeyRange.only(1)), ["value"]);
+    deepEqual(await store.getAll(), ["value"]);
+    deepEqual(await store.getAllKeys(), [1]);
     tx.commit();
     await tx.done;
   });
@@ -57,6 +58,8 @@ test("kv store", async (t) => {
     expectTypeOf(store.get).parameter(0).toEqualTypeOf<string>();
     expectTypeOf(store.get).returns.resolves.toEqualTypeOf<unknown>();
     deepEqual(await store.get("key"), { value: true });
+    deepEqual(await store.getAll(), [{ value: true }]);
+    deepEqual(await store.getAllKeys(), ["key"]);
     tx.commit();
     await tx.done;
   });
@@ -116,6 +119,39 @@ test("kv store", async (t) => {
     await tx.done;
   });
 
+  await t.test("iterate", async (t) => {
+    const tx = db.transaction("num2str");
+    const store = tx.objectStore("num2str");
+    const values: string[] = [];
+    for await (const cursor of store.iterate()) {
+      values.push(cursor.value);
+    }
+    deepEqual(values, ["value!"]);
+    await tx.done;
+  });
+
+  await t.test("update while iterating", async () => {
+    const tx = db.transaction("num2str", "readwrite");
+    const store = tx.objectStore("num2str");
+    const keys: number[] = [];
+    for await (const cursor of store.iterate()) {
+      keys.push(await cursor.update(cursor.value + "?"));
+    }
+    deepEqual(keys, [1]);
+    deepEqual(await store.get(1), "value!?");
+    await tx.done;
+  });
+
+  await t.test("delete while iterating", async () => {
+    const tx = db.transaction("num2str", "readwrite");
+    const store = tx.objectStore("num2str");
+    for await (const cursor of store.iterate()) {
+      await cursor.delete();
+    }
+    deepEqual(await store.get(1), undefined);
+    await tx.done;
+  });
+
   db.close();
 });
 
@@ -159,13 +195,18 @@ test("autoIncrement key", async (t) => {
 });
 
 test("inline key and index", async (t) => {
+  type NameValue = {
+    id: number;
+    name: string;
+  };
+  type DateValue = {
+    id: number | string;
+    created: Date;
+  };
   const db = await openTIDB("inline-key+index", 1, {
     num2name: {
       keyPath: "id",
-      value: schema<{
-        id: number;
-        name: string;
-      }>(),
+      value: schema<NameValue>(),
       indexes: {
         byName: {
           keyPath: "name",
@@ -174,10 +215,7 @@ test("inline key and index", async (t) => {
     },
     union2date: {
       keyPath: "id",
-      value: schema<{
-        id: number | string;
-        created: Date;
-      }>(),
+      value: schema<DateValue>(),
       indexes: {
         byDate: {
           keyPath: "created",
@@ -203,6 +241,9 @@ test("inline key and index", async (t) => {
     const idx = store.index("byName");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
     deepEqual(await idx.get("foo"), { id: 1, name: "foo" });
+    deepEqual(await idx.getAll(), [{ id: 1, name: "foo" }]);
+    expectTypeOf(idx.getAllKeys).returns.resolves.toEqualTypeOf<number[]>();
+    deepEqual(await idx.getAllKeys(), [1]);
     await tx.done;
   });
 
@@ -225,6 +266,9 @@ test("inline key and index", async (t) => {
     const idx = store.index("byDate");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<Date>();
     deepEqual(await idx.get(now), { id: 1, created: now });
+    deepEqual(await idx.getAll(), [{ id: 1, created: now }]);
+    expectTypeOf(idx.getAllKeys).returns.resolves.toEqualTypeOf<(string | number)[]>();
+    deepEqual(await idx.getAllKeys(), [1]);
     await tx.done;
   });
 
@@ -271,6 +315,18 @@ test("inline key and index", async (t) => {
     deepEqual(key, 2);
     deepEqual(await store.getAll(TIDBKeyRange.only(1)), []);
     deepEqual(await store.getAll(TIDBKeyRange.only(2)), [{ id: 2, name: "foo!" }]);
+    await tx.done;
+  });
+
+  await t.test("iterate index", async (t) => {
+    const tx = db.transaction("num2name");
+    const store = tx.objectStore("num2name");
+    const idx = store.index("byName");
+    const values: NameValue[] = [];
+    for await (const cursor of idx.iterate()) {
+      values.push(cursor.value);
+    }
+    deepEqual(values, [{ id: 2, name: "foo!" }]);
     await tx.done;
   });
 

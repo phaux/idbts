@@ -3,6 +3,18 @@
  */
 export const idbReqToPromise = <T>(request: IDBRequest<T>) =>
   new Promise<T>((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    const unlisten = () => {
+      request.removeEventListener("success", handleSuccess);
+      request.removeEventListener("error", handleError);
+    };
+    const handleSuccess = () => {
+      unlisten();
+      resolve(request.result);
+    };
+    const handleError = () => {
+      unlisten();
+      reject(request.error ?? new DOMException("Unknown error", "AbortError"));
+    };
+    request.addEventListener("success", handleSuccess);
+    request.addEventListener("error", handleError);
   });

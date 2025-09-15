@@ -1,6 +1,7 @@
 import { idbReqToPromise } from "./idbReqToPromise.ts";
 import type { IDBValuesAtPaths } from "./IDBValueAtPaths.ts";
 import type { SchemaValue, StandardSchema, schema } from "./StandardSchema.ts";
+import { TIDBCursor } from "./TIDBCursor.ts";
 import { TIDBIndex, type TIDBIndexSchema } from "./TIDBIndex.ts";
 import type { MaybeTIDBKeyRange, TIDBKeyRange } from "./TIDBKeyRange.ts";
 import type { OptionalArg } from "./typeUtils.ts";
@@ -103,6 +104,49 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
    */
   getAll(range?: TIDBKeyRange<TIDBObjectStoreOutputKey<StoreSchema>>): Promise<SchemaValue<StoreSchema["value"]>[]> {
     return idbReqToPromise(this.#store.getAll(range));
+  }
+
+  /**
+   * Retrieves a range of keys from the object store.
+   *
+   * @see {@link IDBObjectStore.getAllKeys}
+   */
+  getAllKeys(
+    range?: TIDBKeyRange<TIDBObjectStoreOutputKey<StoreSchema>>,
+  ): Promise<TIDBObjectStoreOutputKey<StoreSchema>[]> {
+    return idbReqToPromise(this.#store.getAllKeys(range)) as Promise<TIDBObjectStoreOutputKey<StoreSchema>[]>;
+  }
+
+  /**
+   * Opens a cursor on the object store.
+   *
+   * @see {@link IDBObjectStore.openCursor}
+   */
+  async openCursor(
+    range?: TIDBKeyRange<TIDBObjectStoreOutputKey<StoreSchema>>,
+    direction?: IDBCursorDirection,
+  ): Promise<TIDBCursor<SchemaValue<StoreSchema["value"]>, TIDBObjectStoreOutputKey<StoreSchema>> | null> {
+    const cursor = await idbReqToPromise(this.#store.openCursor(range, direction));
+    if (cursor) return new TIDBCursor(cursor);
+    return null;
+  }
+
+  /**
+   * Returns an iterator over the object store.
+   */
+  async *iterate(
+    range?: TIDBKeyRange<TIDBObjectStoreOutputKey<StoreSchema>>,
+    direction?: IDBCursorDirection,
+  ): AsyncIterable<
+    TIDBCursor<SchemaValue<StoreSchema["value"]>, TIDBObjectStoreOutputKey<StoreSchema>>,
+    undefined,
+    undefined
+  > {
+    let cursor = await this.openCursor(range, direction);
+    while (cursor) {
+      yield cursor;
+      cursor = await cursor.continue();
+    }
   }
 
   /**

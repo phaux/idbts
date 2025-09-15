@@ -1,8 +1,9 @@
 import { idbReqToPromise } from "./idbReqToPromise.ts";
 import type { IDBValuesAtPaths } from "./IDBValueAtPaths.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
+import { TIDBCursor } from "./TIDBCursor.ts";
 import type { TIDBKeyRange } from "./TIDBKeyRange.ts";
-import type { TIDBObjectStoreSchema } from "./TIDBObjectStore.ts";
+import type { TIDBObjectStoreOutputKey, TIDBObjectStoreSchema } from "./TIDBObjectStore.ts";
 
 /**
  * A schema for a {@link TIDBIndex}.
@@ -47,6 +48,55 @@ export class TIDBIndex<
    */
   getAll(keys?: TIDBKeyRange<TIDBIndexKey<StoreSchema, IndexName>>): Promise<SchemaValue<StoreSchema["value"]>[]> {
     return idbReqToPromise(this.#index.getAll(keys));
+  }
+
+  /**
+   * Retrieves a range of keys from the index.
+   *
+   * @see {@link IDBIndex.getAllKeys}
+   */
+  getAllKeys(keys?: TIDBKeyRange<TIDBIndexKey<StoreSchema, IndexName>>): Promise<TIDBObjectStoreOutputKey<StoreSchema>[]> {
+    return idbReqToPromise(this.#index.getAllKeys(keys)) as Promise<TIDBObjectStoreOutputKey<StoreSchema>[]>;
+  }
+
+  /**
+   * Opens a cursor on the index.
+   *
+   * @see {@link IDBIndex.openCursor}
+   */
+  async openCursor(
+    range?: TIDBKeyRange<TIDBIndexKey<StoreSchema, IndexName>>,
+    direction?: IDBCursorDirection,
+  ): Promise<TIDBCursor<
+    SchemaValue<StoreSchema["value"]>,
+    TIDBIndexKey<StoreSchema, IndexName>,
+    TIDBObjectStoreOutputKey<StoreSchema>
+  > | null> {
+    const cursor = await idbReqToPromise(this.#index.openCursor(range, direction));
+    if (cursor) return new TIDBCursor(cursor);
+    return null;
+  }
+
+  /**
+   * Returns an iterator over the index.
+   */
+  async *iterate(
+    range?: TIDBKeyRange<TIDBIndexKey<StoreSchema, IndexName>>,
+    direction?: IDBCursorDirection,
+  ): AsyncIterable<
+    TIDBCursor<
+      SchemaValue<StoreSchema["value"]>,
+      TIDBIndexKey<StoreSchema, IndexName>,
+      TIDBObjectStoreOutputKey<StoreSchema>
+    >,
+    undefined,
+    undefined
+  > {
+    let cursor = await this.openCursor(range, direction);
+    while (cursor) {
+      yield cursor;
+      cursor = await cursor.continue();
+    }
   }
 }
 

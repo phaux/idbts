@@ -65,5 +65,6 @@ export * from "./TIDBDatabase.ts";
 export * from "./TIDBTransaction.ts";
 export * from "./TIDBObjectStore.ts";
 export * from "./TIDBIndex.ts";
+export * from "./TIDBCursor.ts";
 export * from "./TIDBKeyRange.ts";
 export * from "./StandardSchema.ts";
