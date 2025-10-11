@@ -1,12 +1,25 @@
-global.DOMException = global.Error as any;
-
 import "fake-indexeddb/auto";
 import "observable-polyfill";
 
 import { expectTypeOf } from "expect-type";
-import { deepEqual, rejects, partialDeepStrictEqual } from "node:assert/strict";
-import { test } from "node:test";
+import { deepEqual, partialDeepStrictEqual, rejects } from "node:assert/strict";
+import { type Mock, test } from "node:test";
 import { openTIDB, schema, TIDBKeyRange } from "./index.ts";
+
+/**
+ * Returns a promise which resolves when the mock function is called.
+ * Mocks implementation once to call the function and resolve the promise with the result.
+ * This causes the call count to increase by 2.
+ */
+function whenMockCalled<Args extends unknown[], Ret>(fn: Mock<(...args: Args) => Ret>): Promise<Ret> {
+  return new Promise((resolve) => {
+    fn.mock.mockImplementationOnce((...args) => {
+      const result = fn(...args);
+      resolve(result);
+      return result;
+    });
+  });
+}
 
 test("kv store", async (t) => {
   const db = await openTIDB("kv-store", 1, {
@@ -28,6 +41,7 @@ test("kv store", async (t) => {
     const tx = db.transaction(["num2str", "str2unknown"], "readonly");
     expectTypeOf(tx.objectStore).parameter(0).toEqualTypeOf<"num2str" | "str2unknown">();
     tx.abort();
+    await rejects(tx.done, /abort/i);
   });
 
   await t.test("number to string", async (t) => {
@@ -150,6 +164,39 @@ test("kv store", async (t) => {
     }
     deepEqual(await store.get(1), undefined);
     await tx.done;
+  });
+
+  await t.test("watch", async (t) => {
+    const ac = new AbortController();
+    const cb = t.mock.fn((v: string | undefined) => v);
+    const initialCall = whenMockCalled(cb); // increases call count by 2
+    const allObserved = db.watch("num2str", 1).forEach(cb, { signal: ac.signal });
+    console.log("started");
+    deepEqual(await initialCall, undefined);
+    deepEqual(cb.mock.calls.length, 2);
+
+    {
+      const tx = db.transaction("num2str", "readwrite");
+      const store = tx.objectStore("num2str");
+      const firstChange = whenMockCalled(cb);
+      await store.put("new value", 1);
+      await tx.done;
+      deepEqual(await firstChange, "new value");
+      deepEqual(cb.mock.calls.length, 4);
+    }
+
+    {
+      const tx2 = db.transaction("num2str", "readwrite");
+      const store2 = tx2.objectStore("num2str");
+      const secondChange = whenMockCalled(cb);
+      await store2.delete(1);
+      await tx2.done;
+      deepEqual(await secondChange, undefined);
+      deepEqual(cb.mock.calls.length, 6);
+    }
+
+    ac.abort();
+    await rejects(allObserved, { name: "AbortError" });
   });
 
   db.close();

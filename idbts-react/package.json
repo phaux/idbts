@@ -1,0 +1,28 @@
+{
+  "name": "idbts-react",
+  "version": "0.1.0",
+  "description": "Typed IndexedDB wrapper",
+  "license": "ISC",
+  "author": "phaux",
+  "type": "module",
+  "exports": {
+    ".": "./index.js"
+  },
+  "main": "./index.js",
+  "scripts": {
+    "prepare": "tsc -p tsconfig.build.json",
+    "test": "tsc --noEmit && node --test --experimental-default-config-file --experimental-test-coverage --import ./test.env.ts --test-timeout 5000"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^18.0.1",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "idbts": "*",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "peerDependencies": {
+    "idbts": "*",
+    "react": "*"
+  }
+}

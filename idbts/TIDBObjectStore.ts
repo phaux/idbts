@@ -48,11 +48,15 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
    *
    * @see {@link IDBObjectStore.add}
    */
-  add(
+  async add(
     value: SchemaValue<StoreSchema["value"]>,
     ...[key]: OptionalArg<TIDBObjectStoreInputKey<StoreSchema>>
   ): Promise<TIDBObjectStoreOutputKey<StoreSchema>> {
-    return idbReqToPromise(this.#store.add(value, key)) as Promise<TIDBObjectStoreOutputKey<StoreSchema>>;
+    const newKey = (await idbReqToPromise(this.#store.add(value, key))) as TIDBObjectStoreOutputKey<StoreSchema>;
+    const chan = this.#getChannel();
+    chan.postMessage(newKey);
+    chan.close();
+    return newKey;
   }
 
   /**
@@ -60,11 +64,15 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
    *
    * @see {@link IDBObjectStore.put}
    */
-  put(
+  async put(
     value: SchemaValue<StoreSchema["value"]>,
     ...[key]: OptionalArg<TIDBObjectStoreInputKey<StoreSchema>>
   ): Promise<TIDBObjectStoreOutputKey<StoreSchema>> {
-    return idbReqToPromise(this.#store.put(value, key)) as Promise<TIDBObjectStoreOutputKey<StoreSchema>>;
+    const newKey = (await idbReqToPromise(this.#store.put(value, key))) as TIDBObjectStoreOutputKey<StoreSchema>;
+    const chan = this.#getChannel();
+    chan.postMessage(newKey);
+    chan.close();
+    return newKey;
   }
 
   /**
@@ -154,8 +162,11 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
    *
    * @see {@link IDBObjectStore.delete}
    */
-  delete(key: MaybeTIDBKeyRange<TIDBObjectStoreOutputKey<StoreSchema>>): Promise<void> {
-    return idbReqToPromise(this.#store.delete(key));
+  async delete(key: MaybeTIDBKeyRange<TIDBObjectStoreOutputKey<StoreSchema>>): Promise<void> {
+    await idbReqToPromise(this.#store.delete(key));
+    const chan = this.#getChannel();
+    chan.postMessage(null);
+    chan.close();
   }
 
   /**
@@ -174,8 +185,15 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
    *
    * @see {@link IDBObjectStore.clear}
    */
-  clear(): Promise<void> {
-    return idbReqToPromise(this.#store.clear());
+  async clear(): Promise<void> {
+    await idbReqToPromise(this.#store.clear());
+    const chan = this.#getChannel();
+    chan.postMessage(null);
+    chan.close();
+  }
+
+  #getChannel(): BroadcastChannel {
+    return new BroadcastChannel(`${this.#store.transaction.db.name}-${this.#store.name}`);
   }
 }
 

@@ -1,3 +1,4 @@
+import type { Observable } from "observable-polyfill/fn";
 import { idbReqToPromise } from "./idbReqToPromise.ts";
 import type { IDBValuesAtPaths } from "./IDBValueAtPaths.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
@@ -51,11 +52,37 @@ export class TIDBIndex<
   }
 
   /**
+   * Watches a range of records in the index.
+   */
+  watchAll(keys?: TIDBKeyRange<TIDBIndexKey<StoreSchema, IndexName>>): Observable<SchemaValue<StoreSchema["value"]>[]> {
+    const O = (globalThis as any).Observable as typeof Observable;
+    return new O((subscriber) => {
+      const chan = new BroadcastChannel(
+        `${this.#index.objectStore.transaction.db.name}-${this.#index.objectStore.name}`,
+      );
+      const reload = () => {
+        this.getAll(keys).then(
+          (v) => subscriber.next(v),
+          (e) => subscriber.error(e),
+        );
+      };
+      chan.addEventListener("message", reload);
+      reload();
+      subscriber.addTeardown(() => {
+        chan.removeEventListener("message", reload);
+        chan.close();
+      });
+    });
+  }
+
+  /**
    * Retrieves a range of keys from the index.
    *
    * @see {@link IDBIndex.getAllKeys}
    */
-  getAllKeys(keys?: TIDBKeyRange<TIDBIndexKey<StoreSchema, IndexName>>): Promise<TIDBObjectStoreOutputKey<StoreSchema>[]> {
+  getAllKeys(
+    keys?: TIDBKeyRange<TIDBIndexKey<StoreSchema, IndexName>>,
+  ): Promise<TIDBObjectStoreOutputKey<StoreSchema>[]> {
     return idbReqToPromise(this.#index.getAllKeys(keys)) as Promise<TIDBObjectStoreOutputKey<StoreSchema>[]>;
   }
 

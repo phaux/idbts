@@ -30,7 +30,7 @@ export class TIDBCursor<Value, Key extends IDBValidKey, PrimaryKey extends IDBVa
    * Advances the cursor by the specified number of records.
    *
    * Resolves with the current cursor after advancing, or null if the end was reached.
-   * 
+   *
    * @see {@link IDBCursor.advance}
    */
   advance(count: number): Promise<TIDBCursor<Value, Key, PrimaryKey>> {
@@ -71,8 +71,12 @@ export class TIDBCursor<Value, Key extends IDBValidKey, PrimaryKey extends IDBVa
    *
    * @see {@link IDBCursor.update}
    */
-  update(value: Value): Promise<PrimaryKey> {
-    return idbReqToPromise(this.#cursor.update(value)) as Promise<PrimaryKey>;
+  async update(value: Value): Promise<PrimaryKey> {
+    await idbReqToPromise(this.#cursor.update(value));
+    const chan = this.#getChannel();
+    chan.postMessage(this.#cursor.primaryKey);
+    chan.close();
+    return this.#cursor.primaryKey as PrimaryKey;
   }
 
   /**
@@ -82,7 +86,16 @@ export class TIDBCursor<Value, Key extends IDBValidKey, PrimaryKey extends IDBVa
    *
    * @see {@link IDBCursor.delete}
    */
-  delete(): Promise<void> {
-    return idbReqToPromise(this.#cursor.delete());
+  async delete(): Promise<void> {
+    await idbReqToPromise(this.#cursor.delete());
+    const chan = this.#getChannel();
+    chan.postMessage(this.#cursor.primaryKey);
+    chan.close();
+  }
+
+  #getChannel(): BroadcastChannel {
+    const source = this.#cursor.source;
+    const store = source instanceof IDBIndex ? source.objectStore : source;
+    return new BroadcastChannel(`${store.transaction.db.name}-${store.name}`);
   }
 }
