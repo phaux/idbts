@@ -6,12 +6,15 @@
   "author": "phaux",
   "type": "module",
   "exports": {
-    ".": "./index.js"
+    ".": {
+      "idbts/source": "./index.ts",
+      "default": "./index.js"
+    }
   },
   "main": "./index.js",
   "scripts": {
     "prepare": "tsc -p tsconfig.build.json",
-    "test": "tsc --noEmit && node --test --experimental-default-config-file --experimental-test-coverage --import ./test.env.ts --test-timeout 5000"
+    "test": "tsc --noEmit && node --test --conditions=idbts/source --experimental-default-config-file --experimental-test-coverage --import ./test.env.ts --test-timeout 5000"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^18.0.1",
