@@ -4,7 +4,7 @@ import "observable-polyfill";
 import { expectTypeOf } from "expect-type";
 import { deepEqual, partialDeepStrictEqual, rejects } from "node:assert/strict";
 import { type Mock, test } from "node:test";
-import { openTIDB, schema, TIDBKeyRange } from "./index.ts";
+import { KeyRange, openDB, schema } from "./index.ts";
 
 /**
  * Returns a promise which resolves when the mock function is called.
@@ -22,7 +22,7 @@ function whenMockCalled<Args extends unknown[], Ret>(fn: Mock<(...args: Args) =>
 }
 
 test("kv store", async (t) => {
-  const db = await openTIDB("kv-store", 1, {
+  const db = await openDB("kv-store", 1, {
     num2str: {
       key: schema<number>(),
       value: schema<string>(),
@@ -33,21 +33,19 @@ test("kv store", async (t) => {
     },
   });
 
-  expectTypeOf(db.transaction)
-    .parameter(0)
-    .toEqualTypeOf<"num2str" | "str2unknown" | readonly ("num2str" | "str2unknown")[]>();
+  expectTypeOf(db.tx).parameter(0).toEqualTypeOf<"num2str" | "str2unknown" | readonly ("num2str" | "str2unknown")[]>();
 
   await t.test("object stores in transaction", async (t) => {
-    const tx = db.transaction(["num2str", "str2unknown"], "readonly");
-    expectTypeOf(tx.objectStore).parameter(0).toEqualTypeOf<"num2str" | "str2unknown">();
+    const tx = db.tx(["num2str", "str2unknown"], "readonly");
+    expectTypeOf(tx.store).parameter(0).toEqualTypeOf<"num2str" | "str2unknown">();
     tx.abort();
     await rejects(tx.done, /abort/i);
   });
 
   await t.test("number to string", async (t) => {
-    const tx = db.transaction(["num2str"], "readwrite");
-    expectTypeOf(tx.objectStore).parameter(0).toEqualTypeOf<"num2str" | undefined>();
-    const store = tx.objectStore("num2str");
+    const tx = db.tx(["num2str"], "readwrite");
+    expectTypeOf(tx.store).parameter(0).toEqualTypeOf<"num2str" | undefined>();
+    const store = tx.store("num2str");
     expectTypeOf(store.add).parameter(0).toEqualTypeOf<string>();
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<number>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<number>();
@@ -62,9 +60,9 @@ test("kv store", async (t) => {
   });
 
   await t.test("string to unknown", async (t) => {
-    const tx = db.transaction("str2unknown", "readwrite");
-    expectTypeOf(tx.objectStore).parameter(0).toEqualTypeOf<"str2unknown" | undefined>();
-    const store = tx.objectStore("str2unknown");
+    const tx = db.tx("str2unknown", "readwrite");
+    expectTypeOf(tx.store).parameter(0).toEqualTypeOf<"str2unknown" | undefined>();
+    const store = tx.store("str2unknown");
     expectTypeOf(store.add).parameter(0).toEqualTypeOf<unknown>();
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<string>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<string>();
@@ -79,18 +77,19 @@ test("kv store", async (t) => {
   });
 
   await t.test("readonly transaction doesn't have write methods", async (t) => {
-    const tx = db.transaction("num2str");
-    const store = tx.objectStore("num2str");
+    const tx = db.tx("num2str");
+    const store = tx.store("num2str");
     expectTypeOf(store).not.toHaveProperty("add");
     expectTypeOf(store).not.toHaveProperty("put");
+    expectTypeOf(store).not.toHaveProperty("update");
     expectTypeOf(store).not.toHaveProperty("delete");
     expectTypeOf(store).not.toHaveProperty("clear");
     await tx.done;
   });
 
   await t.test("1 store transaction doesn't require to specify store name", async (t) => {
-    const tx = db.transaction("num2str");
-    const store = tx.objectStore();
+    const tx = db.tx("num2str");
+    const store = tx.store();
     expectTypeOf(store.get).parameter(0).toEqualTypeOf<number>();
     expectTypeOf(store.get).returns.resolves.toEqualTypeOf<string>();
     deepEqual(await store.get(1), "value");
@@ -98,8 +97,8 @@ test("kv store", async (t) => {
   });
 
   await t.test("update", async (t) => {
-    const tx = db.transaction("num2str", "readwrite");
-    const store = tx.objectStore("num2str");
+    const tx = db.tx("num2str", "readwrite");
+    const store = tx.store("num2str");
     const key = await store.update(1, (value) => value + "!");
     deepEqual(key, 1);
     deepEqual(await store.get(1), "value!");
@@ -107,8 +106,8 @@ test("kv store", async (t) => {
   });
 
   await t.test("update can create entry", async (t) => {
-    const tx = db.transaction("num2str", "readwrite");
-    const store = tx.objectStore("num2str");
+    const tx = db.tx("num2str", "readwrite");
+    const store = tx.store("num2str");
     const key = await store.update(2, (value) => (value ?? "new") + "!");
     deepEqual(key, 2);
     deepEqual(await store.get(2), "new!");
@@ -116,26 +115,26 @@ test("kv store", async (t) => {
   });
 
   await t.test("update can delete entry", async (t) => {
-    const tx = db.transaction("num2str", "readwrite");
-    const store = tx.objectStore("num2str");
+    const tx = db.tx("num2str", "readwrite");
+    const store = tx.store("num2str");
     const key = await store.update(2, (value) => undefined);
     deepEqual(key, undefined);
-    deepEqual(await store.getAll(TIDBKeyRange.only(2)), []);
+    deepEqual(await store.getAll(KeyRange.only(2)), []);
     await tx.done;
   });
 
   await t.test("update does nothing on undefined", async (t) => {
-    const tx = db.transaction("num2str", "readwrite");
-    const store = tx.objectStore("num2str");
+    const tx = db.tx("num2str", "readwrite");
+    const store = tx.store("num2str");
     const key = await store.update(2, (value) => undefined);
     deepEqual(key, undefined);
-    deepEqual(await store.getAll(TIDBKeyRange.only(2)), []);
+    deepEqual(await store.getAll(KeyRange.only(2)), []);
     await tx.done;
   });
 
   await t.test("iterate", async (t) => {
-    const tx = db.transaction("num2str");
-    const store = tx.objectStore("num2str");
+    const tx = db.tx("num2str");
+    const store = tx.store("num2str");
     const values: string[] = [];
     for await (const cursor of store.iterate()) {
       values.push(cursor.value);
@@ -145,8 +144,8 @@ test("kv store", async (t) => {
   });
 
   await t.test("update while iterating", async () => {
-    const tx = db.transaction("num2str", "readwrite");
-    const store = tx.objectStore("num2str");
+    const tx = db.tx("num2str", "readwrite");
+    const store = tx.store("num2str");
     const keys: number[] = [];
     for await (const cursor of store.iterate()) {
       keys.push(await cursor.update(cursor.value + "?"));
@@ -157,8 +156,8 @@ test("kv store", async (t) => {
   });
 
   await t.test("delete while iterating", async () => {
-    const tx = db.transaction("num2str", "readwrite");
-    const store = tx.objectStore("num2str");
+    const tx = db.tx("num2str", "readwrite");
+    const store = tx.store("num2str");
     for await (const cursor of store.iterate()) {
       await cursor.delete();
     }
@@ -176,8 +175,8 @@ test("kv store", async (t) => {
     deepEqual(cb.mock.calls.length, 2);
 
     {
-      const tx = db.transaction("num2str", "readwrite");
-      const store = tx.objectStore("num2str");
+      const tx = db.tx("num2str", "readwrite");
+      const store = tx.store("num2str");
       const firstChange = whenMockCalled(cb);
       await store.put("new value", 1);
       await tx.done;
@@ -186,8 +185,8 @@ test("kv store", async (t) => {
     }
 
     {
-      const tx2 = db.transaction("num2str", "readwrite");
-      const store2 = tx2.objectStore("num2str");
+      const tx2 = db.tx("num2str", "readwrite");
+      const store2 = tx2.store("num2str");
       const secondChange = whenMockCalled(cb);
       await store2.delete(1);
       await tx2.done;
@@ -203,7 +202,7 @@ test("kv store", async (t) => {
 });
 
 test("autoIncrement key", async (t) => {
-  const db = await openTIDB("auto-increment-key", 1, {
+  const db = await openDB("auto-increment-key", 1, {
     numbered: {
       key: schema<number>(),
       autoIncrement: true,
@@ -217,8 +216,8 @@ test("autoIncrement key", async (t) => {
   });
 
   await t.test("input key can be undefined when autoIncrement is true", async (t) => {
-    const tx = db.transaction("numbered", "readwrite");
-    const store = tx.objectStore("numbered");
+    const tx = db.tx("numbered", "readwrite");
+    const store = tx.store("numbered");
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<number | undefined>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<number>();
     deepEqual(await store.add("val1"), 1);
@@ -228,8 +227,8 @@ test("autoIncrement key", async (t) => {
   });
 
   await t.test("output key includes number when autoIncrement is true", async (t) => {
-    const tx = db.transaction("named", "readwrite");
-    const store = tx.objectStore("named");
+    const tx = db.tx("named", "readwrite");
+    const store = tx.store("named");
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<string | undefined>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<string | number>();
     deepEqual(await store.add("val1"), 1);
@@ -250,7 +249,7 @@ test("inline key and index", async (t) => {
     id: number | string;
     created: Date;
   };
-  const db = await openTIDB("inline-key+index", 1, {
+  const db = await openDB("inline-key+index", 1, {
     num2name: {
       keyPath: "id",
       value: schema<NameValue>(),
@@ -272,8 +271,8 @@ test("inline key and index", async (t) => {
   });
 
   await t.test("num key from prop", async (t) => {
-    const tx = db.transaction("num2name", "readwrite");
-    const store = tx.objectStore("num2name");
+    const tx = db.tx("num2name", "readwrite");
+    const store = tx.store("num2name");
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<number>();
     deepEqual(await store.add({ id: 1, name: "foo" }), 1);
@@ -283,8 +282,8 @@ test("inline key and index", async (t) => {
   });
 
   await t.test("string index", async (t) => {
-    const tx = db.transaction("num2name");
-    const store = tx.objectStore("num2name");
+    const tx = db.tx("num2name");
+    const store = tx.store("num2name");
     const idx = store.index("byName");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
     deepEqual(await idx.get("foo"), { id: 1, name: "foo" });
@@ -297,8 +296,8 @@ test("inline key and index", async (t) => {
   const now = new Date();
 
   await t.test("union key from prop", async (t) => {
-    const tx = db.transaction("union2date", "readwrite");
-    const store = tx.objectStore("union2date");
+    const tx = db.tx("union2date", "readwrite");
+    const store = tx.store("union2date");
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<number | string>();
     deepEqual(await store.add({ id: 1, created: now }), 1);
@@ -308,8 +307,8 @@ test("inline key and index", async (t) => {
   });
 
   await t.test("date index", async (t) => {
-    const tx = db.transaction("union2date");
-    const store = tx.objectStore("union2date");
+    const tx = db.tx("union2date");
+    const store = tx.store("union2date");
     const idx = store.index("byDate");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<Date>();
     deepEqual(await idx.get(now), { id: 1, created: now });
@@ -320,8 +319,8 @@ test("inline key and index", async (t) => {
   });
 
   await t.test("update", async (t) => {
-    const tx = db.transaction("num2name", "readwrite");
-    const store = tx.objectStore("num2name");
+    const tx = db.tx("num2name", "readwrite");
+    const store = tx.store("num2name");
     const key = await store.update(1, (value) => value && { ...value, name: value.name + "!" });
     deepEqual(key, 1);
     deepEqual(await store.get(1), { id: 1, name: "foo!" });
@@ -329,8 +328,8 @@ test("inline key and index", async (t) => {
   });
 
   await t.test("update can create entry", async (t) => {
-    const tx = db.transaction("num2name", "readwrite");
-    const store = tx.objectStore("num2name");
+    const tx = db.tx("num2name", "readwrite");
+    const store = tx.store("num2name");
     const key = await store.update(2, (value) => ({ id: 2, name: (value?.name ?? "new") + "!" }));
     deepEqual(key, 2);
     deepEqual(await store.get(2), { id: 2, name: "new!" });
@@ -338,36 +337,36 @@ test("inline key and index", async (t) => {
   });
 
   await t.test("update can delete entry", async (t) => {
-    const tx = db.transaction("num2name", "readwrite");
-    const store = tx.objectStore("num2name");
+    const tx = db.tx("num2name", "readwrite");
+    const store = tx.store("num2name");
     const key = await store.update(2, () => undefined);
     deepEqual(key, undefined);
-    deepEqual(await store.getAll(TIDBKeyRange.only(2)), []);
+    deepEqual(await store.getAll(KeyRange.only(2)), []);
     await tx.done;
   });
 
   await t.test("update does nothing on undefined", async (t) => {
-    const tx = db.transaction("num2name", "readwrite");
-    const store = tx.objectStore("num2name");
+    const tx = db.tx("num2name", "readwrite");
+    const store = tx.store("num2name");
     const key = await store.update(2, () => undefined);
     deepEqual(key, undefined);
-    deepEqual(await store.getAll(TIDBKeyRange.only(3)), []);
+    deepEqual(await store.getAll(KeyRange.only(3)), []);
     await tx.done;
   });
 
   await t.test("deletes old entry if key changed", async (t) => {
-    const tx = db.transaction("num2name", "readwrite");
-    const store = tx.objectStore("num2name");
+    const tx = db.tx("num2name", "readwrite");
+    const store = tx.store("num2name");
     const key = await store.update(1, (value) => value && { ...value, id: 2 });
     deepEqual(key, 2);
-    deepEqual(await store.getAll(TIDBKeyRange.only(1)), []);
-    deepEqual(await store.getAll(TIDBKeyRange.only(2)), [{ id: 2, name: "foo!" }]);
+    deepEqual(await store.getAll(KeyRange.only(1)), []);
+    deepEqual(await store.getAll(KeyRange.only(2)), [{ id: 2, name: "foo!" }]);
     await tx.done;
   });
 
   await t.test("iterate index", async (t) => {
-    const tx = db.transaction("num2name");
-    const store = tx.objectStore("num2name");
+    const tx = db.tx("num2name");
+    const store = tx.store("num2name");
     const idx = store.index("byName");
     const values: NameValue[] = [];
     for await (const cursor of idx.iterate()) {
@@ -381,7 +380,7 @@ test("inline key and index", async (t) => {
 });
 
 test("deeply nested key and index", async (t) => {
-  const db = await openTIDB("deeply-nested-key+index", 1, {
+  const db = await openDB("deeply-nested-key+index", 1, {
     deeplyNested: {
       keyPath: "foo.bar.baz",
       autoIncrement: true,
@@ -395,8 +394,8 @@ test("deeply nested key and index", async (t) => {
   });
 
   await t.test("deeply nested key", async (t) => {
-    const tx = db.transaction("deeplyNested", "readwrite");
-    const store = tx.objectStore("deeplyNested");
+    const tx = db.tx("deeplyNested", "readwrite");
+    const store = tx.store("deeplyNested");
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<string | number>();
     deepEqual(await store.add({ foo: { bar: { baz: "1" } } }), "1");
@@ -406,8 +405,8 @@ test("deeply nested key and index", async (t) => {
   });
 
   await t.test("deeply nested index", async (t) => {
-    const tx = db.transaction("deeplyNested");
-    const store = tx.objectStore("deeplyNested");
+    const tx = db.tx("deeplyNested");
+    const store = tx.store("deeplyNested");
     const idx = store.index("byBaz");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
     deepEqual(await idx.get("1"), { foo: { bar: { baz: "1" } } });
@@ -424,7 +423,7 @@ test("invalid key path", async (t) => {
     boolOrNum: boolean | number;
     unknown?: unknown;
   };
-  const db = await openTIDB("invalid-key-path", 1, {
+  const db = await openDB("invalid-key-path", 1, {
     invalid: {
       keyPath: "doesnt.exist",
       value: schema<Value>(),
@@ -446,8 +445,8 @@ test("invalid key path", async (t) => {
   });
 
   await t.test("non existent key path is never", async (t) => {
-    const tx = db.transaction("invalid", "readwrite");
-    const store = tx.objectStore("invalid");
+    const tx = db.tx("invalid", "readwrite");
+    const store = tx.store("invalid");
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
     expectTypeOf(store.add).returns.resolves.toBeNever();
     await rejects(async () => store.add({ bool: false, boolOrNum: 0 }));
@@ -457,8 +456,8 @@ test("invalid key path", async (t) => {
   });
 
   await t.test("key path to invalid key value is never", async (t) => {
-    const tx = db.transaction("invalid", "readwrite");
-    const store = tx.objectStore("invalid");
+    const tx = db.tx("invalid", "readwrite");
+    const store = tx.store("invalid");
     const idx = store.index("byBool");
     expectTypeOf(idx.get).parameter(0).toBeNever();
     expectTypeOf(idx.get).returns.resolves.toEqualTypeOf<unknown>();
@@ -466,8 +465,8 @@ test("invalid key path", async (t) => {
   });
 
   await t.test("key path to optional value is non-optional", async (t) => {
-    const tx = db.transaction("invalid", "readwrite");
-    const store = tx.objectStore("invalid");
+    const tx = db.tx("invalid", "readwrite");
+    const store = tx.store("invalid");
     const idx = store.index("byMaybeStr");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
     expectTypeOf(idx.get).returns.resolves.toEqualTypeOf<Value>();
@@ -475,8 +474,8 @@ test("invalid key path", async (t) => {
   });
 
   await t.test("key path to partially-invalid value extracts valid key types", async (t) => {
-    const tx = db.transaction("invalid", "readwrite");
-    const store = tx.objectStore("invalid");
+    const tx = db.tx("invalid", "readwrite");
+    const store = tx.store("invalid");
     const idx = store.index("byBoolOrNum");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<number>();
     expectTypeOf(idx.get).returns.resolves.toEqualTypeOf<Value>();
@@ -484,8 +483,8 @@ test("invalid key path", async (t) => {
   });
 
   await t.test("key path to unknown is never (?)", async (t) => {
-    const tx = db.transaction("invalid", "readwrite");
-    const store = tx.objectStore("invalid");
+    const tx = db.tx("invalid", "readwrite");
+    const store = tx.store("invalid");
     const idx = store.index("byUnknown");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<never>();
     expectTypeOf(idx.get).returns.resolves.toEqualTypeOf<unknown>();
@@ -502,7 +501,7 @@ test("special properties", async (t) => {
     blob: Blob;
     file: File;
   }>();
-  const db = await openTIDB("special-properties", 1, {
+  const db = await openDB("special-properties", 1, {
     special: {
       autoIncrement: true,
       value: valueSchema,
@@ -518,14 +517,14 @@ test("special properties", async (t) => {
   const blob = new Blob(["123"], { type: "text/plain" });
   const file = new File(["1234"], "test", { type: "text/plain" });
   {
-    const tx = db.transaction("special", "readwrite");
-    await tx.objectStore("special").add({ str: "12", arr: [1], blob, file });
+    const tx = db.tx("special", "readwrite");
+    await tx.store("special").add({ str: "12", arr: [1], blob, file });
     await tx.done;
   }
 
   await t.test("string length index", async (t) => {
-    const tx = db.transaction("special", "readwrite");
-    const store = tx.objectStore("special");
+    const tx = db.tx("special", "readwrite");
+    const store = tx.store("special");
     const idx = store.index("byStrLen");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<number>();
     partialDeepStrictEqual(await idx.get(2), { str: "12", arr: [1] });
@@ -533,8 +532,8 @@ test("special properties", async (t) => {
   });
 
   await t.test("array length index", async (t) => {
-    const tx = db.transaction("special", "readwrite");
-    const store = tx.objectStore("special");
+    const tx = db.tx("special", "readwrite");
+    const store = tx.store("special");
     const idx = store.index("byArrLen");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<number>();
     partialDeepStrictEqual(await idx.get(1), { str: "12", arr: [1] });
@@ -542,8 +541,8 @@ test("special properties", async (t) => {
   });
 
   await t.test("blob size index", async (t) => {
-    const tx = db.transaction("special", "readwrite");
-    const store = tx.objectStore("special");
+    const tx = db.tx("special", "readwrite");
+    const store = tx.store("special");
     const idx = store.index("byBlobSize");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<number>();
     partialDeepStrictEqual(await idx.get(3), { str: "12", arr: [1] });
@@ -551,8 +550,8 @@ test("special properties", async (t) => {
   });
 
   await t.test("file type index", async (t) => {
-    const tx = db.transaction("special", "readwrite");
-    const store = tx.objectStore("special");
+    const tx = db.tx("special", "readwrite");
+    const store = tx.store("special");
     const idx = store.index("byFileType");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
     partialDeepStrictEqual(await idx.get("text/plain"), { str: "12", arr: [1] });
@@ -567,7 +566,7 @@ test("array key and index", async (t) => {
     coords: [x: number, y: number];
     label: [title: string, subtitle: string];
   };
-  const db = await openTIDB("array-key+index", 1, {
+  const db = await openDB("array-key+index", 1, {
     points: {
       keyPath: "coords",
       value: schema<Value>(),
@@ -578,8 +577,8 @@ test("array key and index", async (t) => {
   });
 
   await t.test("array key", async (t) => {
-    const tx = db.transaction("points", "readwrite");
-    const store = tx.objectStore("points");
+    const tx = db.tx("points", "readwrite");
+    const store = tx.store("points");
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<[number, number]>();
     deepEqual(await store.add({ coords: [1, 2], label: ["foo", "bar"] }), [1, 2]);
@@ -589,8 +588,8 @@ test("array key and index", async (t) => {
   });
 
   await t.test("array index", async (t) => {
-    const tx = db.transaction("points", "readwrite");
-    const store = tx.objectStore("points");
+    const tx = db.tx("points", "readwrite");
+    const store = tx.store("points");
     const idx = store.index("byLabel");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<[string, string]>();
     deepEqual(await idx.get(["foo", "bar"]), { coords: [1, 2], label: ["foo", "bar"] });
@@ -607,7 +606,7 @@ test("compound key and index", async (t) => {
     title: string;
     subtitle: string;
   };
-  const db = await openTIDB("compound-key+index", 1, {
+  const db = await openDB("compound-key+index", 1, {
     points: {
       keyPath: ["x", "y"],
       value: schema<Value>(),
@@ -618,8 +617,8 @@ test("compound key and index", async (t) => {
   });
 
   await t.test("compound key", async (t) => {
-    const tx = db.transaction("points", "readwrite");
-    const store = tx.objectStore("points");
+    const tx = db.tx("points", "readwrite");
+    const store = tx.store("points");
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<[number, number]>();
     deepEqual(await store.add({ x: 1, y: 2, title: "foo", subtitle: "bar" }), [1, 2]);
@@ -629,8 +628,8 @@ test("compound key and index", async (t) => {
   });
 
   await t.test("compound index", async (t) => {
-    const tx = db.transaction("points", "readwrite");
-    const store = tx.objectStore("points");
+    const tx = db.tx("points", "readwrite");
+    const store = tx.store("points");
     const idx = store.index("byLabel");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<[string, string]>();
     deepEqual(await idx.get(["foo", "bar"]), { x: 1, y: 2, title: "foo", subtitle: "bar" });
@@ -646,7 +645,7 @@ test("multi entry index", async (t) => {
     tags: string[];
     category?: null | number | number[];
   };
-  const db = await openTIDB("multi-entry-index", 1, {
+  const db = await openDB("multi-entry-index", 1, {
     posts: {
       keyPath: "id",
       value: schema<Value>(),
@@ -658,15 +657,15 @@ test("multi entry index", async (t) => {
   });
 
   {
-    const tx = db.transaction("posts", "readwrite");
-    const store = tx.objectStore("posts");
+    const tx = db.tx("posts", "readwrite");
+    const store = tx.store("posts");
     deepEqual(await store.add({ id: "1", tags: ["foo"], category: 1 }), "1");
     await tx.done;
   }
 
   await t.test("multi entry index flattens array type", async (t) => {
-    const tx = db.transaction("posts", "readwrite");
-    const store = tx.objectStore("posts");
+    const tx = db.tx("posts", "readwrite");
+    const store = tx.store("posts");
     const idx = store.index("byTag");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
     deepEqual(await idx.get("foo"), { id: "1", tags: ["foo"], category: 1 });
@@ -674,8 +673,8 @@ test("multi entry index", async (t) => {
   });
 
   await t.test("multi entry index of maybe-array flattens array type", async (t) => {
-    const tx = db.transaction("posts", "readwrite");
-    const store = tx.objectStore("posts");
+    const tx = db.tx("posts", "readwrite");
+    const store = tx.store("posts");
     const idx = store.index("byCategory");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<number>();
     deepEqual(await idx.get(1), { id: "1", tags: ["foo"], category: 1 });
@@ -688,7 +687,7 @@ test("multi entry index", async (t) => {
 test("multi entry compound index", async (t) => {
   type Value = { num: number; str: string };
   await rejects(async () =>
-    openTIDB("multi-entry-compound-index", 1, {
+    openDB("multi-entry-compound-index", 1, {
       things: {
         key: schema<number>(),
         value: schema<Value>(),

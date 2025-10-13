@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { openTIDB, schema, useTIDBQuery, useTIDBQueryAll, useTIDBQueryAllBy } from "./index.ts";
+import { openDB, schema, useDBQuery, useDBQueryAll, useDBQueryAllBy } from "./index.ts";
 import { equal } from "node:assert/strict";
 
 const dbSchema = {
@@ -19,14 +19,14 @@ const dbSchema = {
   },
 } as const;
 
-test("useTIDBQuery", async () => {
-  const db = await openTIDB("test-db", 1, dbSchema);
+test("useDBQuery", async () => {
+  const db = await openDB("test-db", 1, dbSchema);
 
   const container = document.createElement("div");
   document.body.appendChild(container);
 
   function Component() {
-    const user = useTIDBQuery(db, "users", 1);
+    const user = useDBQuery(db, "users", 1);
     return createElement("h1", null, user?.name ?? "No user");
   }
 
@@ -54,7 +54,7 @@ test("useTIDBQuery", async () => {
   equal(container.querySelector("h1")!.textContent, "Alice Updated");
 
   await act(async () => {
-    await db.transaction("users", "readwrite").objectStore().delete(id);
+    await db.tx("users", "readwrite").store().delete(id);
     await delay(100);
   });
 
@@ -68,14 +68,14 @@ test("useTIDBQuery", async () => {
   db.close();
 });
 
-test("useTIDBQueryAll", async () => {
-  const db = await openTIDB("test-db", 1, dbSchema);
+test("useDBQueryAll", async () => {
+  const db = await openDB("test-db", 1, dbSchema);
 
   const container = document.createElement("div");
   document.body.appendChild(container);
 
   function Component() {
-    const users = useTIDBQueryAll(db, "users");
+    const users = useDBQueryAll(db, "users");
     return users.length > 0
       ? createElement(
           "ul",
@@ -116,7 +116,7 @@ test("useTIDBQueryAll", async () => {
   equal(container.querySelector("#userlist")!.textContent, "Bob UpdatedCharlie");
 
   await act(async () => {
-    await db.transaction("users", "readwrite").objectStore().clear();
+    await db.tx("users", "readwrite").store().clear();
     await delay(100);
   });
 
@@ -130,14 +130,14 @@ test("useTIDBQueryAll", async () => {
   db.close();
 });
 
-test("useTIDBQueryAllBy", async () => {
-  const db = await openTIDB("test-db", 1, dbSchema);
+test("useDBQueryAllBy", async () => {
+  const db = await openDB("test-db", 1, dbSchema);
 
   const container = document.createElement("div");
   document.body.appendChild(container);
 
   function Component() {
-    const users = useTIDBQueryAllBy(db, "users", "email");
+    const users = useDBQueryAllBy(db, "users", "email");
     return users.length > 0
       ? createElement(
           "ul",
@@ -170,7 +170,7 @@ test("useTIDBQueryAllBy", async () => {
   equal(container.querySelector("#userlist")!.textContent, "BobCharlie");
 
   await act(async () => {
-    await db.transaction("users", "readwrite").objectStore().clear();
+    await db.tx("users", "readwrite").store().clear();
     await delay(100);
   });
 

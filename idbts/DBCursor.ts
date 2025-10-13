@@ -3,7 +3,7 @@ import { idbReqToPromise } from "./idbReqToPromise.ts";
 /**
  * A wrapper for {@link IDBCursor} with more strict types.
  */
-export class TIDBCursor<Value, Key extends IDBValidKey, PrimaryKey extends IDBValidKey = Key> {
+export class DBCursor<Value, Key extends IDBValidKey, PrimaryKey extends IDBValidKey = Key> {
   #cursor: IDBCursorWithValue;
 
   constructor(cursor: IDBCursorWithValue) {
@@ -33,7 +33,7 @@ export class TIDBCursor<Value, Key extends IDBValidKey, PrimaryKey extends IDBVa
    *
    * @see {@link IDBCursor.advance}
    */
-  advance(count: number): Promise<TIDBCursor<Value, Key, PrimaryKey>> {
+  advance(count: number): Promise<DBCursor<Value, Key, PrimaryKey>> {
     this.#cursor.advance(count);
     return idbReqToPromise(this.#cursor.request);
   }
@@ -47,7 +47,7 @@ export class TIDBCursor<Value, Key extends IDBValidKey, PrimaryKey extends IDBVa
    *
    * @see {@link IDBCursor.continue}
    */
-  continue(key?: Key): Promise<TIDBCursor<Value, Key, PrimaryKey>> {
+  continue(key?: Key): Promise<DBCursor<Value, Key, PrimaryKey>> {
     this.#cursor.continue(key);
     return idbReqToPromise(this.#cursor.request);
   }
@@ -59,7 +59,7 @@ export class TIDBCursor<Value, Key extends IDBValidKey, PrimaryKey extends IDBVa
    *
    * @see {@link IDBCursor.continuePrimaryKey}
    */
-  continuePrimaryKey(key: Key, primaryKey: PrimaryKey): Promise<TIDBCursor<Value, Key, PrimaryKey>> {
+  continuePrimaryKey(key: Key, primaryKey: PrimaryKey): Promise<DBCursor<Value, Key, PrimaryKey>> {
     this.#cursor.continuePrimaryKey(key, primaryKey);
     return idbReqToPromise(this.#cursor.request);
   }
@@ -73,9 +73,7 @@ export class TIDBCursor<Value, Key extends IDBValidKey, PrimaryKey extends IDBVa
    */
   async update(value: Value): Promise<PrimaryKey> {
     await idbReqToPromise(this.#cursor.update(value));
-    const chan = this.#getChannel();
-    chan.postMessage(this.#cursor.primaryKey);
-    chan.close();
+    this.#notify();
     return this.#cursor.primaryKey as PrimaryKey;
   }
 
@@ -88,14 +86,14 @@ export class TIDBCursor<Value, Key extends IDBValidKey, PrimaryKey extends IDBVa
    */
   async delete(): Promise<void> {
     await idbReqToPromise(this.#cursor.delete());
-    const chan = this.#getChannel();
-    chan.postMessage(this.#cursor.primaryKey);
-    chan.close();
+    this.#notify();
   }
 
-  #getChannel(): BroadcastChannel {
+  #notify() {
     const source = this.#cursor.source;
     const store = source instanceof IDBIndex ? source.objectStore : source;
-    return new BroadcastChannel(`${store.transaction.db.name}-${store.name}`);
+    const chan = new BroadcastChannel(`${store.transaction.db.name}-${store.name}`);
+    chan.postMessage(this.#cursor.primaryKey);
+    chan.close();
   }
 }

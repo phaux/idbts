@@ -1,19 +1,21 @@
+import type { Observable } from "observable-polyfill/fn";
+import { DBCursor } from "./DBCursor.ts";
+import { DBIndex, type DBIndexSchema } from "./DBIndex.ts";
 import { idbReqToPromise } from "./idbReqToPromise.ts";
-import type { IDBValuesAtPaths } from "./IDBValueAtPaths.ts";
+import type { KeyRange, MaybeKeyRange } from "./KeyRange.ts";
 import type { SchemaValue, StandardSchema, schema } from "./StandardSchema.ts";
-import { TIDBCursor } from "./TIDBCursor.ts";
-import { TIDBIndex, type TIDBIndexSchema } from "./TIDBIndex.ts";
-import type { MaybeTIDBKeyRange, TIDBKeyRange } from "./TIDBKeyRange.ts";
 import type { OptionalArg } from "./typeUtils.ts";
+import type { ValuesAtPaths } from "./ValuesAtPaths.ts";
+import { satisfiesKeyRange } from "./satisfiesKeyRange.ts";
 
 /**
- * A schema for a {@link TIDBObjectStore}.
+ * A schema for a {@link DBStore}.
  */
-export interface TIDBObjectStoreSchema extends IDBObjectStoreParameters {
+export interface DBStoreSchema extends IDBObjectStoreParameters {
   /**
    * The schema of the external key.
    *
-   * External keys are passed to {@link TIDBObjectStore.add} and {@link TIDBObjectStore.put} as a separate argument.
+   * External keys are passed to {@link DBStore.add} and {@link DBStore.put} as a separate argument.
    *
    * Alternatively, an inline key can be defined by specifying the {@link keyPath} property.
    */
@@ -30,13 +32,13 @@ export interface TIDBObjectStoreSchema extends IDBObjectStoreParameters {
    *
    * This is a map of index names to their schemas.
    */
-  indexes?: Record<string, TIDBIndexSchema>;
+  indexes?: Record<string, DBIndexSchema>;
 }
 
 /**
  * A wrapper for {@link IDBObjectStore} with more strict types.
  */
-export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
+export class DBStore<const Schema extends DBStoreSchema> {
   #store: IDBObjectStore;
 
   constructor(store: IDBObjectStore) {
@@ -49,10 +51,10 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
    * @see {@link IDBObjectStore.add}
    */
   async add(
-    value: SchemaValue<StoreSchema["value"]>,
-    ...[key]: OptionalArg<TIDBObjectStoreInputKey<StoreSchema>>
-  ): Promise<TIDBObjectStoreOutputKey<StoreSchema>> {
-    const newKey = (await idbReqToPromise(this.#store.add(value, key))) as TIDBObjectStoreOutputKey<StoreSchema>;
+    value: SchemaValue<Schema["value"]>,
+    ...[key]: OptionalArg<StoreInputKey<Schema>>
+  ): Promise<StoreOutputKey<Schema>> {
+    const newKey = (await idbReqToPromise(this.#store.add(value, key))) as StoreOutputKey<Schema>;
     const chan = this.#getChannel();
     chan.postMessage(newKey);
     chan.close();
@@ -65,10 +67,10 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
    * @see {@link IDBObjectStore.put}
    */
   async put(
-    value: SchemaValue<StoreSchema["value"]>,
-    ...[key]: OptionalArg<TIDBObjectStoreInputKey<StoreSchema>>
-  ): Promise<TIDBObjectStoreOutputKey<StoreSchema>> {
-    const newKey = (await idbReqToPromise(this.#store.put(value, key))) as TIDBObjectStoreOutputKey<StoreSchema>;
+    value: SchemaValue<Schema["value"]>,
+    ...[key]: OptionalArg<StoreInputKey<Schema>>
+  ): Promise<StoreOutputKey<Schema>> {
+    const newKey = (await idbReqToPromise(this.#store.put(value, key))) as StoreOutputKey<Schema>;
     const chan = this.#getChannel();
     chan.postMessage(newKey);
     chan.close();
@@ -82,9 +84,9 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
    * If the updater returns undefined, the record will be deleted.
    */
   async update(
-    key: TIDBObjectStoreOutputKey<StoreSchema>,
-    updater: (value: SchemaValue<StoreSchema["value"]> | undefined) => SchemaValue<StoreSchema["value"]> | undefined,
-  ): Promise<TIDBObjectStoreOutputKey<StoreSchema> | undefined> {
+    key: StoreOutputKey<Schema>,
+    updater: (value: SchemaValue<Schema["value"]> | undefined) => SchemaValue<Schema["value"]> | undefined,
+  ): Promise<StoreOutputKey<Schema> | undefined> {
     const oldValue = await this.get(key);
     const newValue = updater(oldValue);
     if (newValue != null) {
@@ -101,7 +103,7 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
    *
    * @see {@link IDBObjectStore.get}
    */
-  get(key: TIDBObjectStoreOutputKey<StoreSchema>): Promise<SchemaValue<StoreSchema["value"]>> {
+  get(key: StoreOutputKey<Schema>): Promise<SchemaValue<Schema["value"]>> {
     return idbReqToPromise(this.#store.get(key));
   }
 
@@ -110,7 +112,7 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
    *
    * @see {@link IDBObjectStore.getAll}
    */
-  getAll(range?: TIDBKeyRange<TIDBObjectStoreOutputKey<StoreSchema>>): Promise<SchemaValue<StoreSchema["value"]>[]> {
+  getAll(range?: KeyRange<StoreOutputKey<Schema>>): Promise<SchemaValue<Schema["value"]>[]> {
     return idbReqToPromise(this.#store.getAll(range));
   }
 
@@ -119,10 +121,8 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
    *
    * @see {@link IDBObjectStore.getAllKeys}
    */
-  getAllKeys(
-    range?: TIDBKeyRange<TIDBObjectStoreOutputKey<StoreSchema>>,
-  ): Promise<TIDBObjectStoreOutputKey<StoreSchema>[]> {
-    return idbReqToPromise(this.#store.getAllKeys(range)) as Promise<TIDBObjectStoreOutputKey<StoreSchema>[]>;
+  getAllKeys(range?: KeyRange<StoreOutputKey<Schema>>): Promise<StoreOutputKey<Schema>[]> {
+    return idbReqToPromise(this.#store.getAllKeys(range)) as Promise<StoreOutputKey<Schema>[]>;
   }
 
   /**
@@ -131,11 +131,11 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
    * @see {@link IDBObjectStore.openCursor}
    */
   async openCursor(
-    range?: TIDBKeyRange<TIDBObjectStoreOutputKey<StoreSchema>>,
+    range?: KeyRange<StoreOutputKey<Schema>>,
     direction?: IDBCursorDirection,
-  ): Promise<TIDBCursor<SchemaValue<StoreSchema["value"]>, TIDBObjectStoreOutputKey<StoreSchema>> | null> {
+  ): Promise<DBCursor<SchemaValue<Schema["value"]>, StoreOutputKey<Schema>> | null> {
     const cursor = await idbReqToPromise(this.#store.openCursor(range, direction));
-    if (cursor) return new TIDBCursor(cursor);
+    if (cursor) return new DBCursor(cursor);
     return null;
   }
 
@@ -143,13 +143,9 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
    * Returns an iterator over the object store.
    */
   async *iterate(
-    range?: TIDBKeyRange<TIDBObjectStoreOutputKey<StoreSchema>>,
+    range?: KeyRange<StoreOutputKey<Schema>>,
     direction?: IDBCursorDirection,
-  ): AsyncIterable<
-    TIDBCursor<SchemaValue<StoreSchema["value"]>, TIDBObjectStoreOutputKey<StoreSchema>>,
-    undefined,
-    undefined
-  > {
+  ): AsyncIterable<DBCursor<SchemaValue<Schema["value"]>, StoreOutputKey<Schema>>, undefined, undefined> {
     let cursor = await this.openCursor(range, direction);
     while (cursor) {
       yield cursor;
@@ -162,7 +158,7 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
    *
    * @see {@link IDBObjectStore.delete}
    */
-  async delete(key: MaybeTIDBKeyRange<TIDBObjectStoreOutputKey<StoreSchema>>): Promise<void> {
+  async delete(key: MaybeKeyRange<StoreOutputKey<Schema>>): Promise<void> {
     await idbReqToPromise(this.#store.delete(key));
     const chan = this.#getChannel();
     chan.postMessage(null);
@@ -174,10 +170,8 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
    *
    * @see {@link IDBObjectStore.index}
    */
-  index<const IndexName extends keyof StoreSchema["indexes"] & string>(
-    indexName: IndexName,
-  ): TIDBIndex<StoreSchema, IndexName> {
-    return new TIDBIndex(this.#store.index(indexName));
+  index<const IndexName extends keyof Schema["indexes"] & string>(indexName: IndexName): DBIndex<Schema, IndexName> {
+    return new DBIndex(this.#store.index(indexName));
   }
 
   /**
@@ -198,13 +192,13 @@ export class TIDBObjectStore<const StoreSchema extends TIDBObjectStoreSchema> {
 }
 
 /**
- * A readonly version of {@link TIDBObjectStore}.
+ * A readonly version of {@link DBStore}.
  *
  * It omits the methods that modify the object store.
  */
-export type TIDBReadOnlyObjectStore<StoreSchema extends TIDBObjectStoreSchema> = Omit<
-  TIDBObjectStore<StoreSchema>,
-  "add" | "put" | "delete" | "clear"
+export type ReadonlyDBStore<Schema extends DBStoreSchema> = Omit<
+  DBStore<Schema>,
+  "add" | "put" | "update" | "delete" | "clear"
 >;
 
 /**
@@ -212,16 +206,16 @@ export type TIDBReadOnlyObjectStore<StoreSchema extends TIDBObjectStoreSchema> =
  *
  * It can be either the defined key type or undefined if the store has an auto-incrementing key.
  */
-export type TIDBObjectStoreInputKey<StoreSchema extends TIDBObjectStoreSchema> =
-  | SchemaValue<StoreSchema["key"]>
-  | (StoreSchema["autoIncrement"] extends true ? undefined : never);
+export type StoreInputKey<Schema extends DBStoreSchema> =
+  | SchemaValue<Schema["key"]>
+  | (Schema["autoIncrement"] extends true ? undefined : never);
 
 /**
  * Infer a key type retrieved from the object store based on the store schema.
  *
  * It can be either the defined key type, auto-incrementing number, or a type at the specified key path.
  */
-export type TIDBObjectStoreOutputKey<StoreSchema extends TIDBObjectStoreSchema> =
-  | SchemaValue<StoreSchema["key"]>
-  | (StoreSchema["autoIncrement"] extends true ? number : never)
-  | IDBValuesAtPaths<SchemaValue<StoreSchema["value"]>, StoreSchema["keyPath"]>;
+export type StoreOutputKey<Schema extends DBStoreSchema> =
+  | SchemaValue<Schema["key"]>
+  | (Schema["autoIncrement"] extends true ? number : never)
+  | ValuesAtPaths<SchemaValue<Schema["value"]>, Schema["keyPath"]>;

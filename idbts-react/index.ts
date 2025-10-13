@@ -1,38 +1,31 @@
-import type {
-  SchemaValue,
-  TIDBDatabase,
-  TIDBDatabaseSchema,
-  TIDBIndexKey,
-  TIDBKeyRange,
-  TIDBObjectStoreOutputKey,
-} from "idbts";
+import type { SchemaValue, Database, DatabaseSchema, IndexKey, KeyRange, StoreOutputKey } from "idbts";
 import { useObservable } from "./useObservable.ts";
 
-export function useTIDBQuery<Schema extends TIDBDatabaseSchema, StoreName extends keyof Schema & string>(
-  db: TIDBDatabase<Schema>,
+export function useDBQuery<Schema extends DatabaseSchema, StoreName extends keyof Schema & string>(
+  db: Database<Schema>,
   storeName: StoreName,
-  key: TIDBObjectStoreOutputKey<Schema[StoreName]>,
+  key: StoreOutputKey<Schema[StoreName]>,
 ): SchemaValue<Schema[StoreName]["value"]> | undefined {
   return useObservable(() => db.watch(storeName, key), [db.name, storeName, key]);
 }
 
-export function useTIDBQueryAll<Schema extends TIDBDatabaseSchema, StoreName extends keyof Schema & string>(
-  db: TIDBDatabase<Schema>,
+export function useDBQueryAll<Schema extends DatabaseSchema, StoreName extends keyof Schema & string>(
+  db: Database<Schema>,
   storeName: StoreName,
-  range?: TIDBKeyRange<TIDBObjectStoreOutputKey<Schema[StoreName]>>,
+  range?: KeyRange<StoreOutputKey<Schema[StoreName]>>,
 ): SchemaValue<Schema[StoreName]["value"]>[] {
   return useObservable(() => db.watchAll(storeName, range), [db.name, storeName, range]);
 }
 
-export function useTIDBQueryAllBy<
-  Schema extends TIDBDatabaseSchema,
+export function useDBQueryAllBy<
+  Schema extends DatabaseSchema,
   StoreName extends keyof Schema & string,
   IndexName extends keyof Schema[StoreName]["indexes"] & string,
 >(
-  db: TIDBDatabase<Schema>,
+  db: Database<Schema>,
   storeName: StoreName,
   indexName: IndexName,
-  range?: TIDBKeyRange<TIDBIndexKey<Schema[StoreName], IndexName>>,
+  range?: KeyRange<IndexKey<Schema[StoreName], IndexName>>,
 ): SchemaValue<Schema[StoreName]["value"]>[] {
   return useObservable(() => db.watchAllBy(storeName, indexName, range), [db.name, storeName, indexName, range]);
 }

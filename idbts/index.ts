@@ -1,9 +1,9 @@
-import { type TIDBDatabaseSchema, TIDBDatabase } from "./TIDBDatabase.ts";
+import { type DatabaseSchema, Database } from "./Database.ts";
 
 /**
- * Options for {@link openTIDB}.
+ * Options for {@link openDB}.
  */
-export interface OpenTIDBOptions {
+export interface OpenDBOptions {
   onUpgradeNeeded: IDBOpenDBRequest["onupgradeneeded"];
   onBlocked: IDBOpenDBRequest["onblocked"];
   onVersionChange: IDBDatabase["onversionchange"];
@@ -18,19 +18,19 @@ export interface OpenTIDBOptions {
  *
  * @see {@link indexedDB.open}
  */
-export function openTIDB<const T extends TIDBDatabaseSchema>(
+export function openDB<const T extends DatabaseSchema>(
   name: string,
   version: number,
   schema: T,
-  options?: OpenTIDBOptions,
-): Promise<TIDBDatabase<T>> {
+  options?: OpenDBOptions,
+): Promise<Database<T>> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(name, version);
     request.onsuccess = () => {
       const db = request.result;
       db.onversionchange = options?.onVersionChange ?? null;
       db.onclose = options?.onClose ?? null;
-      resolve(new TIDBDatabase(db));
+      resolve(new Database(db));
     };
     request.onerror = () => {
       reject(request.error ?? new DOMException("Unknown error", "AbortError"));
@@ -61,10 +61,10 @@ export function openTIDB<const T extends TIDBDatabaseSchema>(
   });
 }
 
-export * from "./TIDBDatabase.ts";
-export * from "./TIDBTransaction.ts";
-export * from "./TIDBObjectStore.ts";
-export * from "./TIDBIndex.ts";
-export * from "./TIDBCursor.ts";
-export * from "./TIDBKeyRange.ts";
+export * from "./Database.ts";
+export * from "./DBCursor.ts";
+export * from "./DBIndex.ts";
+export * from "./DBStore.ts";
+export * from "./DBTransaction.ts";
+export * from "./KeyRange.ts";
 export * from "./StandardSchema.ts";

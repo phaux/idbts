@@ -5,10 +5,10 @@
  *
  * @example
  * ```ts
- * type A = IDBValuesAtPaths<{ a: { b: number } }, ["a.b"]> // number
+ * type A = ValuesAtPaths<{ a: { b: number } }, ["a.b"]> // number
  * ```
  */
-export type IDBValuesAtPaths<
+export type ValuesAtPaths<
   Value,
   Paths extends string | readonly string[] | null | undefined,
 > = Paths extends infer P extends readonly string[]

@@ -1,53 +1,53 @@
 /**
  * An alias for the global {@link IDBKeyRange} with a more strict type.
  */
-export const TIDBKeyRange: TIDBKeyRangeCtor = IDBKeyRange;
+export const KeyRange: KeyRangeCtor = IDBKeyRange;
 
-export interface TIDBKeyRangeCtor {
-  prototype: TIDBKeyRange<any>;
+export interface KeyRangeCtor {
+  prototype: KeyRange<any>;
 
   /**
    * Returns a new IDBKeyRange spanning from lower to upper. If lowerOpen is true, lower is not included in the range. If upperOpen is true, upper is not included in the range.
    */
   bound<T extends IDBValidKey>(
-    lower: TIDBKeyBound<T>,
-    upper: TIDBKeyBound<T>,
+    lower: KeyBound<T>,
+    upper: KeyBound<T>,
     lowerOpen?: boolean,
     upperOpen?: boolean,
-  ): TIDBKeyRange<T>;
+  ): KeyRange<T>;
 
   /**
    * Returns a new IDBKeyRange starting at key with no upper bound. If open is true, key is not included in the range.
    */
-  lowerBound<T extends IDBValidKey>(lower: TIDBKeyBound<T>, open?: boolean): TIDBKeyRange<T>;
+  lowerBound<T extends IDBValidKey>(lower: KeyBound<T>, open?: boolean): KeyRange<T>;
 
   /**
    * Returns a new IDBKeyRange with no lower bound and ending at key. If open is true, key is not included in the range.
    */
-  upperBound<T extends IDBValidKey>(upper: TIDBKeyBound<T>, open?: boolean): TIDBKeyRange<T>;
+  upperBound<T extends IDBValidKey>(upper: KeyBound<T>, open?: boolean): KeyRange<T>;
 
   /**
    * Returns a new IDBKeyRange spanning only key.
    */
-  only<T extends IDBValidKey>(value: T): TIDBKeyRange<T>;
+  only<T extends IDBValidKey>(value: T): KeyRange<T>;
 }
 
 /**
  * A range of keys.
  * Used to query object stores.
  */
-export interface TIDBKeyRange<out T extends IDBValidKey> extends IDBKeyRange {
-  readonly lower: TIDBKeyBound<T>;
-  readonly upper: TIDBKeyBound<T>;
+export interface KeyRange<out T extends IDBValidKey> extends IDBKeyRange {
+  readonly lower: KeyBound<T>;
+  readonly upper: KeyBound<T>;
 }
 
 /**
- * Either a single {@link IDBValidKey} or a {@link TIDBKeyRange}.
+ * Either a single {@link IDBValidKey} or a {@link KeyRange}.
  */
-export type MaybeTIDBKeyRange<T extends IDBValidKey> = T | TIDBKeyRange<T>;
+export type MaybeKeyRange<T extends IDBValidKey> = T | KeyRange<T>;
 
 /**
- * An upper or lower range bound of a {@link TIDBKeyRange}.
+ * An upper or lower range bound of a {@link KeyRange}.
  *
  * It allows value of the specified type or {@link minKey} or {@link maxKey}.
  *
@@ -59,14 +59,12 @@ export type MaybeTIDBKeyRange<T extends IDBValidKey> = T | TIDBKeyRange<T>;
  * const r: TIDBKeyRange<[string, number]> = TIDBKeyRange.bound(["a"], ["a", maxKey])
  * ```
  */
-export type TIDBKeyBound<T> = T extends readonly unknown[]
-  ? PartialTuple<{ [I in keyof T]: TIDBKeyValue<T[I]> }>
-  : TIDBKeyValue<T>;
+export type KeyBound<T> = T extends readonly unknown[] ? PartialTuple<{ [I in keyof T]: KeyValue<T[I]> }> : KeyValue<T>;
 
 /**
  * A key of the specified type or {@link minKey} or {@link maxKey}.
  */
-export type TIDBKeyValue<T> = T | typeof minKey | typeof maxKey;
+export type KeyValue<T> = T | typeof minKey | typeof maxKey;
 
 /**
  * Modifies a tuple type so it allows omitting elements from the end.

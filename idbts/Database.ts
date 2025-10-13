@@ -1,28 +1,23 @@
 import type { Observable } from "observable-polyfill/fn";
+import type { IndexKey } from "./DBIndex.ts";
+import type { DBStore, DBStoreSchema, StoreInputKey, StoreOutputKey } from "./DBStore.ts";
+import { DBTransaction, type DBTransactionMode } from "./DBTransaction.ts";
+import type { KeyRange } from "./KeyRange.ts";
 import { satisfiesKeyRange } from "./satisfiesKeyRange.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
-import type { TIDBIndexKey } from "./TIDBIndex.ts";
-import type { TIDBKeyRange } from "./TIDBKeyRange.ts";
-import type {
-  TIDBObjectStore,
-  TIDBObjectStoreInputKey,
-  TIDBObjectStoreOutputKey,
-  TIDBObjectStoreSchema,
-} from "./TIDBObjectStore.ts";
-import { TIDBTransaction, type TIDBTransactionMode } from "./TIDBTransaction.ts";
 import type { MaybeArray, OptionalArg, ToArray } from "./typeUtils.ts";
 
 /**
- * A schema for a {@link TIDBDatabase}.
+ * A schema for a {@link Database}.
  *
  * It's a map of store names to their schemas.
  */
-export type TIDBDatabaseSchema = Record<string, TIDBObjectStoreSchema>;
+export type DatabaseSchema = Record<string, DBStoreSchema>;
 
 /**
  * A wrapper for {@link IDBDatabase} with more strict types.
  */
-export class TIDBDatabase<const DatabaseSchema extends TIDBDatabaseSchema> implements Disposable {
+export class Database<const Schema extends DatabaseSchema> {
   #db: IDBDatabase;
 
   constructor(db: IDBDatabase) {
@@ -43,29 +38,26 @@ export class TIDBDatabase<const DatabaseSchema extends TIDBDatabaseSchema> imple
    *
    * @see {@link IDBDatabase.transaction}
    */
-  transaction<
-    const StoreNames extends MaybeArray<keyof DatabaseSchema & string>,
-    const Mode extends TIDBTransactionMode = "readonly",
-  >(
+  tx<const StoreNames extends MaybeArray<keyof Schema & string>, const Mode extends DBTransactionMode = "readonly">(
     storeNames: StoreNames,
     mode?: Mode,
     options?: IDBTransactionOptions,
-  ): TIDBTransaction<DatabaseSchema, ToArray<StoreNames>, Mode> {
-    return new TIDBTransaction(this.#db.transaction(storeNames as string | string[], mode, options));
+  ): DBTransaction<Schema, ToArray<StoreNames>, Mode> {
+    return new DBTransaction(this.#db.transaction(storeNames as string | string[], mode, options));
   }
 
   /**
    * Adds a new record to the object store.
    *
-   * It's a shortcut for creating a transaction and calling {@link TIDBObjectStore.add}.
+   * It's a shortcut for creating a transaction and calling {@link DBStore.add}.
    */
-  async add<const StoreName extends keyof DatabaseSchema & string>(
+  async add<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    value: SchemaValue<DatabaseSchema[StoreName]["value"]>,
-    ...[key]: OptionalArg<TIDBObjectStoreInputKey<DatabaseSchema[StoreName]>>
-  ): Promise<TIDBObjectStoreOutputKey<DatabaseSchema[StoreName]>> {
-    const tx = this.transaction([storeName], "readwrite");
-    const store = tx.objectStore();
+    value: SchemaValue<Schema[StoreName]["value"]>,
+    ...[key]: OptionalArg<StoreInputKey<Schema[StoreName]>>
+  ): Promise<StoreOutputKey<Schema[StoreName]>> {
+    const tx = this.tx([storeName], "readwrite");
+    const store = tx.store();
     const newKey = await store.add(value, key as any);
     await tx.done;
     return newKey;
@@ -74,15 +66,15 @@ export class TIDBDatabase<const DatabaseSchema extends TIDBDatabaseSchema> imple
   /**
    * Adds or replaces a record in the object store.
    *
-   * It's a shortcut for creating a transaction and calling {@link TIDBObjectStore.put}.
+   * It's a shortcut for creating a transaction and calling {@link DBStore.put}.
    */
-  async put<const StoreName extends keyof DatabaseSchema & string>(
+  async put<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    value: SchemaValue<DatabaseSchema[StoreName]["value"]>,
-    ...[key]: OptionalArg<TIDBObjectStoreInputKey<DatabaseSchema[StoreName]>>
-  ): Promise<TIDBObjectStoreOutputKey<DatabaseSchema[StoreName]>> {
-    const tx = this.transaction([storeName], "readwrite");
-    const store = tx.objectStore();
+    value: SchemaValue<Schema[StoreName]["value"]>,
+    ...[key]: OptionalArg<StoreInputKey<Schema[StoreName]>>
+  ): Promise<StoreOutputKey<Schema[StoreName]>> {
+    const tx = this.tx([storeName], "readwrite");
+    const store = tx.store();
     const newKey = await store.put(value, key as any);
     await tx.done;
     return newKey;
@@ -91,28 +83,28 @@ export class TIDBDatabase<const DatabaseSchema extends TIDBDatabaseSchema> imple
   /**
    * Retrieves a record from the object store by its key.
    *
-   * It's a shortcut for creating a transaction and calling {@link TIDBObjectStore.get}.
+   * It's a shortcut for creating a transaction and calling {@link DBStore.get}.
    */
-  get<const StoreName extends keyof DatabaseSchema & string>(
+  get<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    key: TIDBObjectStoreOutputKey<DatabaseSchema[StoreName]>,
-  ): Promise<SchemaValue<DatabaseSchema[StoreName]["value"]>> {
-    return this.transaction([storeName])
-      .objectStore()
+    key: StoreOutputKey<Schema[StoreName]>,
+  ): Promise<SchemaValue<Schema[StoreName]["value"]>> {
+    return this.tx([storeName])
+      .store()
       .get(key as any);
   }
 
   /**
    * Retrieves a range of records from the object store by their keys.
    *
-   * It's a shortcut for creating a transaction and calling {@link TIDBObjectStore.getAll}.
+   * It's a shortcut for creating a transaction and calling {@link DBStore.getAll}.
    */
-  getAll<const StoreName extends keyof DatabaseSchema & string>(
+  getAll<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    range?: TIDBKeyRange<TIDBObjectStoreOutputKey<DatabaseSchema[StoreName]>>,
-  ): Promise<SchemaValue<DatabaseSchema[StoreName]["value"]>[]> {
-    return this.transaction([storeName])
-      .objectStore()
+    range?: KeyRange<StoreOutputKey<Schema[StoreName]>>,
+  ): Promise<SchemaValue<Schema[StoreName]["value"]>[]> {
+    return this.tx([storeName])
+      .store()
       .getAll(range as any);
   }
 
@@ -122,15 +114,15 @@ export class TIDBDatabase<const DatabaseSchema extends TIDBDatabaseSchema> imple
    * It's a shortcut for creating a transaction and calling {@link TIDBIndex.getAll}.
    */
   getAllBy<
-    const StoreName extends keyof DatabaseSchema & string,
-    const IndexName extends keyof DatabaseSchema[StoreName]["indexes"] & string,
+    const StoreName extends keyof Schema & string,
+    const IndexName extends keyof Schema[StoreName]["indexes"] & string,
   >(
     storeName: StoreName,
     indexName: IndexName,
-    range?: TIDBKeyRange<TIDBIndexKey<DatabaseSchema[StoreName], IndexName>>,
-  ): Promise<SchemaValue<DatabaseSchema[StoreName]["value"]>[]> {
-    return this.transaction([storeName])
-      .objectStore()
+    range?: KeyRange<IndexKey<Schema[StoreName], IndexName>>,
+  ): Promise<SchemaValue<Schema[StoreName]["value"]>[]> {
+    return this.tx([storeName])
+      .store()
       .index(indexName)
       .getAll(range as any);
   }
@@ -138,10 +130,10 @@ export class TIDBDatabase<const DatabaseSchema extends TIDBDatabaseSchema> imple
   /**
    * Watches a single record in the object store.
    */
-  watch<const StoreName extends keyof DatabaseSchema & string>(
+  watch<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    key: TIDBObjectStoreOutputKey<DatabaseSchema[StoreName]>,
-  ): Observable<SchemaValue<DatabaseSchema[StoreName]["value"]> | undefined> {
+    key: StoreOutputKey<Schema[StoreName]>,
+  ): Observable<SchemaValue<Schema[StoreName]["value"]> | undefined> {
     const O = (globalThis as any).Observable as typeof Observable;
     return new O((subscriber) => {
       const chan = this.#getChannel(storeName);
@@ -165,10 +157,10 @@ export class TIDBDatabase<const DatabaseSchema extends TIDBDatabaseSchema> imple
   /**
    * Watches a range of records in the object store.
    */
-  watchAll<const StoreName extends keyof DatabaseSchema & string>(
+  watchAll<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    range?: TIDBKeyRange<TIDBObjectStoreOutputKey<DatabaseSchema[StoreName]>>,
-  ): Observable<SchemaValue<DatabaseSchema[StoreName]["value"]>[]> {
+    range?: KeyRange<StoreOutputKey<Schema[StoreName]>>,
+  ): Observable<SchemaValue<Schema[StoreName]["value"]>[]> {
     const O = (globalThis as any).Observable as typeof Observable;
     return new O((subscriber) => {
       const chan = this.#getChannel(storeName);
@@ -193,13 +185,13 @@ export class TIDBDatabase<const DatabaseSchema extends TIDBDatabaseSchema> imple
    * Watches a range of records in the object store by index.
    */
   watchAllBy<
-    const StoreName extends keyof DatabaseSchema & string,
-    const IndexName extends keyof DatabaseSchema[StoreName]["indexes"] & string,
+    const StoreName extends keyof Schema & string,
+    const IndexName extends keyof Schema[StoreName]["indexes"] & string,
   >(
     storeName: StoreName,
     indexName: IndexName,
-    range?: TIDBKeyRange<TIDBIndexKey<DatabaseSchema[StoreName], IndexName>>,
-  ): Observable<SchemaValue<DatabaseSchema[StoreName]["value"]>[]> {
+    range?: KeyRange<IndexKey<Schema[StoreName], IndexName>>,
+  ): Observable<SchemaValue<Schema[StoreName]["value"]>[]> {
     const O = (globalThis as any).Observable as typeof Observable;
     return new O((subscriber) => {
       const chan = this.#getChannel(storeName);
@@ -224,10 +216,6 @@ export class TIDBDatabase<const DatabaseSchema extends TIDBDatabaseSchema> imple
    * @see {@link IDBDatabase.close}
    */
   close() {
-    this.#db.close();
-  }
-
-  [Symbol.dispose](): void {
     this.#db.close();
   }
 
