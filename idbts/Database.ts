@@ -2,7 +2,7 @@ import type { Observable } from "observable-polyfill/fn";
 import type { IndexKey } from "./DBIndex.ts";
 import type { DBStore, DBStoreSchema, StoreInputKey, StoreOutputKey } from "./DBStore.ts";
 import { DBTransaction, type DBTransactionMode } from "./DBTransaction.ts";
-import type { KeyRange } from "./KeyRange.ts";
+import type { KeyRange, MaybeKeyRange } from "./KeyRange.ts";
 import { satisfiesKeyRange } from "./satisfiesKeyRange.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
 import type { MaybeArray, OptionalArg, ToArray } from "./typeUtils.ts";
@@ -208,6 +208,29 @@ export class Database<const Schema extends DatabaseSchema> {
         chan.close();
       });
     });
+  }
+
+  /**
+   * Deletes a record or a range of records from the object store.
+   */
+  async delete<const StoreName extends keyof Schema & string>(
+    storeName: StoreName,
+    key: MaybeKeyRange<StoreOutputKey<Schema[StoreName]>>,
+  ) {
+    const tx = this.tx([storeName], "readwrite");
+    const store = tx.store();
+    await store.delete(key as any);
+    await tx.done;
+  }
+
+  /**
+   * Deletes all records from the object store.
+   */
+  async clear<const StoreName extends keyof Schema & string>(storeName: StoreName) {
+    const tx = this.tx([storeName], "readwrite");
+    const store = tx.store();
+    await store.clear();
+    await tx.done;
   }
 
   /**

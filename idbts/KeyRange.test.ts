@@ -1,7 +1,7 @@
 import { expectTypeOf } from "expect-type";
 import { ok } from "node:assert/strict";
 import { test } from "node:test";
-import { minKey, maxKey, KeyRange } from "./KeyRange.ts";
+import { KeyRange } from "./KeyRange.ts";
 
 test("primitive key ranges", async (t) => {
   await t.test("only", () => {
@@ -13,12 +13,10 @@ test("primitive key ranges", async (t) => {
   });
 
   await t.test("bound", () => {
-    expectTypeOf(KeyRange.bound<string>).parameters.toEqualTypeOf<
-      [string | typeof maxKey | typeof minKey, string | typeof maxKey | typeof minKey, boolean?, boolean?]
-    >();
+    expectTypeOf(KeyRange.bound<string>).parameters.toEqualTypeOf<[string, string, boolean?, boolean?]>();
     const r: KeyRange<string> = KeyRange.bound("m", "n");
-    expectTypeOf(r.lower).toEqualTypeOf<string | typeof minKey | typeof maxKey>();
-    expectTypeOf(r.upper).toEqualTypeOf<string | typeof minKey | typeof maxKey>();
+    expectTypeOf(r.lower).toEqualTypeOf<string>();
+    expectTypeOf(r.upper).toEqualTypeOf<string>();
     ok(!r.includes("l"));
     ok(r.includes("m"));
     ok(r.includes("n"));
@@ -26,9 +24,7 @@ test("primitive key ranges", async (t) => {
   });
 
   await t.test("lowerBound", () => {
-    expectTypeOf(KeyRange.lowerBound<string>).parameters.toEqualTypeOf<
-      [string | typeof maxKey | typeof minKey, boolean?]
-    >();
+    expectTypeOf(KeyRange.lowerBound<string>).parameters.toEqualTypeOf<[string, boolean?]>();
     const r: KeyRange<string> = KeyRange.lowerBound("m");
     ok(!r.includes("l"));
     ok(r.includes("m"));
@@ -37,9 +33,7 @@ test("primitive key ranges", async (t) => {
   });
 
   await t.test("upperBound", () => {
-    expectTypeOf(KeyRange.upperBound<string>).parameters.toEqualTypeOf<
-      [string | typeof maxKey | typeof minKey, boolean?]
-    >();
+    expectTypeOf(KeyRange.upperBound<string>).parameters.toEqualTypeOf<[string, boolean?]>();
     const r: KeyRange<string> = KeyRange.upperBound("n");
     ok(r.includes("l"));
     ok(r.includes("m"));
@@ -48,13 +42,13 @@ test("primitive key ranges", async (t) => {
   });
 
   await t.test("bound to maxKey", () => {
-    const r: KeyRange<string> = KeyRange.bound("m", maxKey);
+    const r: KeyRange<string> = KeyRange.bound("m", "\uFFFF");
     ok(!r.includes("aaa"));
     ok(r.includes("zzz"));
   });
 
   await t.test("bound from minKey", () => {
-    const r: KeyRange<string> = KeyRange.bound(minKey, "n");
+    const r: KeyRange<string> = KeyRange.bound("", "n");
     ok(r.includes("aaa"));
     ok(!r.includes("zzz"));
   });
@@ -72,28 +66,11 @@ test("array key ranges", async (t) => {
   await t.test("bound", () => {
     expectTypeOf(KeyRange.bound<[string, number]>)
       .parameter<0 | 1>(0)
-      .toEqualTypeOf<
-        | readonly [string | typeof maxKey | typeof minKey, number | typeof maxKey | typeof minKey]
-        | readonly [string | typeof maxKey | typeof minKey]
-      >();
+      .toEqualTypeOf<[string, number]>();
     const r: KeyRange<[string, number]> = KeyRange.bound(["m", 1], ["n", 2]);
     ok(!r.includes(["m", 0]));
     ok(r.includes(["m", 1]));
     ok(r.includes(["n", 2]));
     ok(!r.includes(["n", 3]));
   });
-});
-
-test("3 elem array", () => {
-  expectTypeOf(KeyRange.bound<[string, number, number]>)
-    .parameter<0 | 1>(0)
-    .toEqualTypeOf<
-      | readonly [
-          string | typeof maxKey | typeof minKey,
-          number | typeof maxKey | typeof minKey,
-          number | typeof maxKey | typeof minKey,
-        ]
-      | readonly [string | typeof maxKey | typeof minKey, number | typeof maxKey | typeof minKey]
-      | readonly [string | typeof maxKey | typeof minKey]
-    >();
 });

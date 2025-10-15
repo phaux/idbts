@@ -4,6 +4,7 @@ import "observable-polyfill";
 import { expectTypeOf } from "expect-type";
 import { deepEqual, partialDeepStrictEqual, rejects } from "node:assert/strict";
 import { type Mock, test } from "node:test";
+import { setTimeout } from "node:timers/promises";
 import { KeyRange, openDB, schema } from "./index.ts";
 
 /**
@@ -168,34 +169,93 @@ test("kv store", async (t) => {
   await t.test("watch", async (t) => {
     const ac = new AbortController();
     const cb = t.mock.fn((v: string | undefined) => v);
-    const initialCall = whenMockCalled(cb); // increases call count by 2
-    const allObserved = db.watch("num2str", 1).forEach(cb, { signal: ac.signal });
-    console.log("started");
-    deepEqual(await initialCall, undefined);
+    const called = whenMockCalled(cb); // increases call count by 2
+    const finished = db.watch("num2str", 1).forEach(cb, { signal: ac.signal });
+    deepEqual(await called, undefined);
     deepEqual(cb.mock.calls.length, 2);
 
-    {
+    await t.test("add", async () => {
       const tx = db.tx("num2str", "readwrite");
       const store = tx.store("num2str");
-      const firstChange = whenMockCalled(cb);
+      const called = whenMockCalled(cb);
       await store.put("new value", 1);
       await tx.done;
-      deepEqual(await firstChange, "new value");
+      deepEqual(await called, "new value");
       deepEqual(cb.mock.calls.length, 4);
-    }
+    });
 
-    {
-      const tx2 = db.tx("num2str", "readwrite");
-      const store2 = tx2.store("num2str");
-      const secondChange = whenMockCalled(cb);
-      await store2.delete(1);
-      await tx2.done;
-      deepEqual(await secondChange, undefined);
+    await t.test("delete", async () => {
+      const tx = db.tx("num2str", "readwrite");
+      const store = tx.store("num2str");
+      const called = whenMockCalled(cb);
+      await store.delete(1);
+      await tx.done;
+      deepEqual(await called, undefined);
       deepEqual(cb.mock.calls.length, 6);
-    }
+    });
+
+    await t.test("add unwatched key", async () => {
+      const tx = db.tx("num2str", "readwrite");
+      const store = tx.store("num2str");
+      const called = whenMockCalled(cb);
+      await store.put("new value", 2);
+      await tx.done;
+      deepEqual(await Promise.race([called, setTimeout(10, "timeout")]), "timeout");
+      deepEqual(cb.mock.calls.length, 6);
+    });
+
+    await t.test("clear", async () => {
+      const tx = db.tx("num2str", "readwrite");
+      const store = tx.store("num2str");
+      const called = whenMockCalled(cb);
+      await store.clear();
+      await tx.done;
+      deepEqual(await called, undefined);
+      deepEqual(cb.mock.calls.length, 8);
+    });
 
     ac.abort();
-    await rejects(allObserved, { name: "AbortError" });
+    await rejects(finished, { name: "AbortError" });
+  });
+
+  await t.test("watch all", async (t) => {
+    const ac = new AbortController();
+    const cb = t.mock.fn((v: unknown[]) => v);
+    const called = whenMockCalled(cb); // increases call count by 2
+    const finished = db.watchAll("str2unknown", KeyRange.lowerBound("b")).forEach(cb, { signal: ac.signal });
+    deepEqual(await called, [{ value: true }]); // from previous test
+    deepEqual(cb.mock.calls.length, 2);
+
+    await t.test("add", async () => {
+      const called = whenMockCalled(cb);
+      await db.put("str2unknown", "new value", "b");
+      deepEqual(await called, ["new value", { value: true }]);
+      deepEqual(cb.mock.calls.length, 4);
+    });
+
+    await t.test("delete", async () => {
+      const called = whenMockCalled(cb);
+      await db.delete("str2unknown", "b");
+      deepEqual(await called, [{ value: true }]);
+      deepEqual(cb.mock.calls.length, 6);
+    });
+
+    await t.test("add unwatched key", async () => {
+      const called = whenMockCalled(cb);
+      await db.put("str2unknown", "another value", "a");
+      deepEqual(await Promise.race([called, setTimeout(10, "timeout")]), "timeout");
+      deepEqual(cb.mock.calls.length, 6);
+    });
+
+    await t.test("clear", async () => {
+      const called = whenMockCalled(cb);
+      await db.clear("str2unknown");
+      deepEqual(await called, []);
+      deepEqual(cb.mock.calls.length, 8);
+    });
+
+    ac.abort();
+    await rejects(finished, { name: "AbortError" });
   });
 
   db.close();
@@ -376,6 +436,37 @@ test("inline key and index", async (t) => {
     await tx.done;
   });
 
+  await t.test("watch all by index", async (t) => {
+    const ac = new AbortController();
+    const cb = t.mock.fn((v: unknown[]) => v);
+    const called = whenMockCalled(cb); // increases call count by 2
+    const finished = db.watchAllBy("num2name", "byName", KeyRange.lowerBound("b")).forEach(cb, { signal: ac.signal });
+    deepEqual(await called, [{ id: 2, name: "foo!" }]);
+    deepEqual(cb.mock.calls.length, 2);
+
+    await t.test("add", async () => {
+      const called = whenMockCalled(cb);
+      await db.put("num2name", { id: 3, name: "bar!" });
+      deepEqual(await called, [
+        { id: 3, name: "bar!" },
+        { id: 2, name: "foo!" },
+      ]);
+      deepEqual(cb.mock.calls.length, 4);
+    });
+
+    await t.test("delete", async () => {
+      const called = whenMockCalled(cb);
+      await db.delete("num2name", 2);
+      deepEqual(await called, [{ id: 3, name: "bar!" }]);
+      deepEqual(cb.mock.calls.length, 6);
+    });
+
+    // TODO: add unwatched key shouldn't trigger index watcher
+
+    ac.abort();
+    await rejects(finished, { name: "AbortError" });
+  });
+
   db.close();
 });
 
@@ -516,11 +607,7 @@ test("special properties", async (t) => {
 
   const blob = new Blob(["123"], { type: "text/plain" });
   const file = new File(["1234"], "test", { type: "text/plain" });
-  {
-    const tx = db.tx("special", "readwrite");
-    await tx.store("special").add({ str: "12", arr: [1], blob, file });
-    await tx.done;
-  }
+  await db.add("special", { str: "12", arr: [1], blob, file });
 
   await t.test("string length index", async (t) => {
     const tx = db.tx("special", "readwrite");
@@ -576,24 +663,44 @@ test("array key and index", async (t) => {
     },
   });
 
+  const value: Value = { coords: [1, 2], label: ["foo", "bar"] };
+  deepEqual(await db.add("points", value), [1, 2]);
+
   await t.test("array key", async (t) => {
-    const tx = db.tx("points", "readwrite");
+    const tx = db.tx("points", "readonly");
     const store = tx.store("points");
-    expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
-    expectTypeOf(store.add).returns.resolves.toEqualTypeOf<[number, number]>();
-    deepEqual(await store.add({ coords: [1, 2], label: ["foo", "bar"] }), [1, 2]);
     expectTypeOf(store.get).parameter(0).toEqualTypeOf<[number, number]>();
-    deepEqual(await store.get([1, 2]), { coords: [1, 2], label: ["foo", "bar"] });
+    deepEqual(await store.get([1, 2]), value);
+    expectTypeOf(store.getAll).parameter(0).toEqualTypeOf<KeyRange<[number, number]> | undefined>();
+    deepEqual(await store.getAll(KeyRange.lowerBound([1, -Infinity])), [value]);
+    expectTypeOf(store.getAllKeys).parameter(0).toEqualTypeOf<KeyRange<[number, number]> | undefined>();
+    deepEqual(await store.getAllKeys(KeyRange.upperBound([1, Infinity])), [[1, 2]]);
     await tx.done;
+    expectTypeOf(db.get<"points">)
+      .parameter(1)
+      .toEqualTypeOf<[number, number]>();
+    deepEqual(await db.get("points", [1, 2]), value);
+    expectTypeOf(db.getAll<"points">)
+      .parameter(1)
+      .toEqualTypeOf<KeyRange<[number, number]> | undefined>();
+    deepEqual(await db.getAll("points", KeyRange.bound([1, -Infinity], [1, Infinity])), [value]);
   });
 
   await t.test("array index", async (t) => {
-    const tx = db.tx("points", "readwrite");
+    const tx = db.tx("points", "readonly");
     const store = tx.store("points");
     const idx = store.index("byLabel");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<[string, string]>();
-    deepEqual(await idx.get(["foo", "bar"]), { coords: [1, 2], label: ["foo", "bar"] });
+    deepEqual(await idx.get(["foo", "bar"]), value);
+    expectTypeOf(idx.getAll).parameter(0).toEqualTypeOf<KeyRange<[string, string]> | undefined>();
+    deepEqual(await idx.getAll(KeyRange.bound(["foo", ""], ["foo", "\uFFFF"])), [value]);
+    expectTypeOf(idx.getAllKeys).parameter(0).toEqualTypeOf<KeyRange<[string, string]> | undefined>();
+    deepEqual(await idx.getAllKeys(KeyRange.bound(["a", ""], ["z", "\uFFFF"])), [[1, 2]]);
     await tx.done;
+    expectTypeOf(db.getAllBy<"points", "byLabel">)
+      .parameter(2)
+      .toEqualTypeOf<KeyRange<[string, string]> | undefined>();
+    deepEqual(await db.getAllBy("points", "byLabel", KeyRange.bound(["foo", ""], ["foo", "\uFFFF"])), [value]);
   });
 
   db.close();
@@ -616,24 +723,37 @@ test("compound key and index", async (t) => {
     },
   });
 
+  const value: Value = { x: 1, y: 2, title: "foo", subtitle: "bar" };
+  await db.put("points", value);
+
   await t.test("compound key", async (t) => {
-    const tx = db.tx("points", "readwrite");
+    const tx = db.tx("points", "readonly");
     const store = tx.store("points");
-    expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
-    expectTypeOf(store.add).returns.resolves.toEqualTypeOf<[number, number]>();
-    deepEqual(await store.add({ x: 1, y: 2, title: "foo", subtitle: "bar" }), [1, 2]);
     expectTypeOf(store.get).parameter(0).toEqualTypeOf<[number, number]>();
-    deepEqual(await store.get([1, 2]), { x: 1, y: 2, title: "foo", subtitle: "bar" });
+    deepEqual(await store.get([1, 2]), value);
+    deepEqual(await store.getAll(KeyRange.only([1, 2])), [value]);
+    deepEqual(await store.getAllKeys(KeyRange.only([1, 2])), [[1, 2]]);
     await tx.done;
+    expectTypeOf(db.get<"points">)
+      .parameter(1)
+      .toEqualTypeOf<[number, number]>();
+    deepEqual(await db.get("points", [1, 2]), value);
+    deepEqual(await db.getAll("points", KeyRange.only([1, 2])), [value]);
   });
 
   await t.test("compound index", async (t) => {
-    const tx = db.tx("points", "readwrite");
+    const tx = db.tx("points", "readonly");
     const store = tx.store("points");
     const idx = store.index("byLabel");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<[string, string]>();
-    deepEqual(await idx.get(["foo", "bar"]), { x: 1, y: 2, title: "foo", subtitle: "bar" });
+    deepEqual(await idx.get(["foo", "bar"]), value);
+    deepEqual(await idx.getAll(KeyRange.only(["foo", "bar"])), [value]);
+    deepEqual(await idx.getAllKeys(KeyRange.only(["foo", "bar"])), [[1, 2]]);
     await tx.done;
+    expectTypeOf(db.getAllBy<"points", "byLabel">)
+      .parameter(2)
+      .toEqualTypeOf<KeyRange<[string, string]> | undefined>();
+    deepEqual(await db.getAllBy("points", "byLabel", KeyRange.only(["foo", "bar"])), [value]);
   });
 
   db.close();
@@ -644,6 +764,7 @@ test("multi entry index", async (t) => {
     id: string;
     tags: string[];
     category?: null | number | number[];
+    path: [string, number];
   };
   const db = await openDB("multi-entry-index", 1, {
     posts: {
@@ -652,24 +773,25 @@ test("multi entry index", async (t) => {
       indexes: {
         byTag: { keyPath: "tags", multiEntry: true },
         byCategory: { keyPath: "category", multiEntry: true },
+        byPath: { keyPath: "path", multiEntry: true },
       },
     },
   });
 
-  {
-    const tx = db.tx("posts", "readwrite");
-    const store = tx.store("posts");
-    deepEqual(await store.add({ id: "1", tags: ["foo"], category: 1 }), "1");
-    await tx.done;
-  }
+  const value: Value = { id: "1", tags: ["foo"], category: 1, path: ["bar", 2] };
+  deepEqual(await db.add("posts", value), "1");
 
   await t.test("multi entry index flattens array type", async (t) => {
     const tx = db.tx("posts", "readwrite");
     const store = tx.store("posts");
     const idx = store.index("byTag");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
-    deepEqual(await idx.get("foo"), { id: "1", tags: ["foo"], category: 1 });
+    deepEqual(await idx.get("foo"), value);
     await tx.done;
+    expectTypeOf(db.getAllBy<"posts", "byTag">)
+      .parameter(2)
+      .toEqualTypeOf<KeyRange<string> | undefined>();
+    deepEqual(await db.getAllBy("posts", "byTag", KeyRange.only("foo")), [value]);
   });
 
   await t.test("multi entry index of maybe-array flattens array type", async (t) => {
@@ -677,22 +799,41 @@ test("multi entry index", async (t) => {
     const store = tx.store("posts");
     const idx = store.index("byCategory");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<number>();
-    deepEqual(await idx.get(1), { id: "1", tags: ["foo"], category: 1 });
+    deepEqual(await idx.get(1), value);
     await tx.done;
+    expectTypeOf(db.getAllBy<"posts", "byCategory">)
+      .parameter(2)
+      .toEqualTypeOf<KeyRange<number> | undefined>();
+    deepEqual(await db.getAllBy("posts", "byCategory", KeyRange.only(1)), [value]);
+  });
+
+  await t.test("multi entry index of tuple", async (t) => {
+    const tx = db.tx("posts", "readwrite");
+    const store = tx.store("posts");
+    const idx = store.index("byPath");
+    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string | number>();
+    deepEqual(await idx.get("bar"), value);
+    deepEqual(await idx.get(2), value);
+    await tx.done;
+    expectTypeOf(db.getAllBy<"posts", "byPath">)
+      .parameter(2)
+      .toEqualTypeOf<KeyRange<string | number> | undefined>();
+    deepEqual(await db.getAllBy("posts", "byPath", KeyRange.only("bar")), [value]);
   });
 
   db.close();
 });
 
 test("multi entry compound index", async (t) => {
-  type Value = { num: number; str: string };
+  type Value = { nums: number[]; strs: string[] };
+  // Disallowed by spec.
   await rejects(async () =>
     openDB("multi-entry-compound-index", 1, {
       things: {
         key: schema<number>(),
         value: schema<Value>(),
         indexes: {
-          byValue: { keyPath: ["str", "num"], multiEntry: true },
+          byValue: { keyPath: ["strs", "nums"], multiEntry: true },
         },
       },
     }),

@@ -1,4 +1,3 @@
-import type { Observable } from "observable-polyfill/fn";
 import { DBCursor } from "./DBCursor.ts";
 import { DBIndex, type DBIndexSchema } from "./DBIndex.ts";
 import { idbReqToPromise } from "./idbReqToPromise.ts";
@@ -6,7 +5,6 @@ import type { KeyRange, MaybeKeyRange } from "./KeyRange.ts";
 import type { SchemaValue, StandardSchema, schema } from "./StandardSchema.ts";
 import type { OptionalArg } from "./typeUtils.ts";
 import type { ValuesAtPaths } from "./ValuesAtPaths.ts";
-import { satisfiesKeyRange } from "./satisfiesKeyRange.ts";
 
 /**
  * A schema for a {@link DBStore}.
