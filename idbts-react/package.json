@@ -17,7 +17,7 @@
     "test": "tsc --noEmit && node --test --conditions=idbts/source --experimental-default-config-file --experimental-test-coverage --import ./test.env.ts --test-timeout 5000"
   },
   "devDependencies": {
-    "@happy-dom/global-registrator": "^18.0.1",
+    "@happy-dom/global-registrator": "^20.0.2",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
     "idbts": "*",
