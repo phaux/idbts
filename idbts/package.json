@@ -14,7 +14,7 @@
   "main": "index.js",
   "scripts": {
     "prepare": "tsc -p tsconfig.build.json",
-    "test": "tsc --noEmit && node --test --test-reporter spec --test-reporter-destination stdout --experimental-test-coverage --test-reporter lcov --test-reporter-destination lcov.info --import ./test.env.ts --test-timeout 5000"
+    "test": "tsc --noEmit && node --test --test-reporter spec --test-reporter-destination stdout --experimental-test-coverage --test-reporter lcov --test-reporter-destination lcov.info --test-timeout 5000"
   },
   "devDependencies": {
     "@types/node": "^24.3.1",

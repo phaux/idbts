@@ -1,6 +1,7 @@
 {
   "$schema": "https://nodejs.org/dist/v22.19.0/docs/node-config-schema.json",
   "nodeOptions": {
+    "conditions": ["idbts/source"],
     "test-coverage-exclude": ["../**/*.ts"],
     "test-reporter": ["spec", "lcov"],
     "test-reporter-destination": ["stdout", "lcov.info"]

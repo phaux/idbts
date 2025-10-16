@@ -1,8 +1,10 @@
+import "./test.env.ts";
+
+import { equal } from "node:assert/strict";
 import { test } from "node:test";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { openDB, schema, useDBQuery, useDBQueryAll, useDBQueryAllBy } from "./index.ts";
-import { equal } from "node:assert/strict";
 
 const dbSchema = {
   users: {
