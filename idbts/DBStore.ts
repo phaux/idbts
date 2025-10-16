@@ -143,7 +143,7 @@ export class DBStore<const Schema extends DBStoreSchema> {
   async *iterate(
     range?: KeyRange<StoreOutputKey<Schema>>,
     direction?: IDBCursorDirection,
-  ): AsyncIterable<DBCursor<SchemaValue<Schema["value"]>, StoreOutputKey<Schema>>, undefined, undefined> {
+  ): AsyncIterableIterator<DBCursor<SchemaValue<Schema["value"]>, StoreOutputKey<Schema>>, undefined, undefined> {
     let cursor = await this.openCursor(range, direction);
     while (cursor) {
       yield cursor;

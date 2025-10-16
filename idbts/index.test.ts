@@ -22,7 +22,58 @@ function whenMockCalled<Args extends unknown[], Ret>(fn: Mock<(...args: Args) =>
   });
 }
 
-test("kv store", async (t) => {
+test("database lifecycle", async (t) => {
+  await t.test("creates database with 1 store", async (t) => {
+    const onUpgradeNeeded = t.mock.fn<NonNullable<IDBOpenDBRequest["onupgradeneeded"]>>();
+    const db = await openDB("test-db", 1, { strs: { value: schema<string>() } }, { onUpgradeNeeded });
+    deepEqual(Array.from(db.storeNames), ["strs"]);
+    db.close();
+    deepEqual(onUpgradeNeeded.mock.calls.length, 1);
+    deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.oldVersion, 0);
+    deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.newVersion, 1);
+  });
+
+  await t.test("same version doesn't call onUpgradeNeeded", async (t) => {
+    const onUpgradeNeeded = t.mock.fn<NonNullable<IDBOpenDBRequest["onupgradeneeded"]>>();
+    const db = await openDB("test-db", 1, { strs: { value: schema<string>() } }, { onUpgradeNeeded });
+    deepEqual(Array.from(db.storeNames), ["strs"]);
+    db.close();
+    deepEqual(onUpgradeNeeded.mock.calls.length, 0);
+  });
+
+  await t.test("upgrade adds stores", async (t) => {
+    const onUpgradeNeeded = t.mock.fn<NonNullable<IDBOpenDBRequest["onupgradeneeded"]>>();
+    const db = await openDB(
+      "test-db",
+      2,
+      { strs: { value: schema<string>() }, nums: { value: schema<number>() } },
+      { onUpgradeNeeded },
+    );
+    deepEqual(new Set(Array.from(db.storeNames)), new Set(["strs", "nums"]));
+    db.close();
+    deepEqual(onUpgradeNeeded.mock.calls.length, 1);
+    deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.oldVersion, 1);
+    deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.newVersion, 2);
+  });
+
+  await t.test("upgrade deletes stores", async (t) => {
+    const onUpgradeNeeded = t.mock.fn<NonNullable<IDBOpenDBRequest["onupgradeneeded"]>>();
+    const db = await openDB("test-db", 3, { nums: { value: schema<number>() } }, { onUpgradeNeeded });
+    deepEqual(Array.from(db.storeNames), ["nums"]);
+    db.close();
+    deepEqual(onUpgradeNeeded.mock.calls.length, 1);
+    deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.oldVersion, 2);
+    deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.newVersion, 3);
+  });
+
+  await t.test("downgrade errors", async (t) => {
+    const onUpgradeNeeded = t.mock.fn();
+    await rejects(openDB("test-db", 2, { strs: { value: schema<string>() } }, { onUpgradeNeeded }));
+    deepEqual(onUpgradeNeeded.mock.calls.length, 0);
+  });
+});
+
+test("simple key-value store", async (t) => {
   const db = await openDB("kv-store", 1, {
     num2str: {
       key: schema<number>(),
@@ -136,11 +187,19 @@ test("kv store", async (t) => {
   await t.test("iterate", async () => {
     const tx = db.tx("num2str");
     const store = tx.store("num2str");
-    const values: string[] = [];
+    const entries: [number, string][] = [];
     for await (const cursor of store.iterate()) {
-      values.push(cursor.value);
+      entries.push([cursor.key, cursor.value]);
     }
-    deepEqual(values, ["value!"]);
+    deepEqual(entries, [[1, "value!"]]);
+    await tx.done;
+  });
+
+  await t.test("iterate empty", async () => {
+    const tx = db.tx("num2str");
+    const store = tx.store("num2str");
+    const iter = store.iterate(KeyRange.upperBound(0));
+    deepEqual(await iter.next(), { value: undefined, done: true });
     await tx.done;
   });
 
@@ -222,7 +281,7 @@ test("kv store", async (t) => {
     const ac = new AbortController();
     const cb = t.mock.fn((v: unknown[]) => v);
     const called = whenMockCalled(cb); // increases call count by 2
-    const finished = db.watchAll("str2unknown", KeyRange.lowerBound("b")).forEach(cb, { signal: ac.signal });
+    const finished = db.watchAll("str2unknown", KeyRange.bound("b", "x")).forEach(cb, { signal: ac.signal });
     deepEqual(await called, [{ value: true }]); // from previous test
     deepEqual(cb.mock.calls.length, 2);
 

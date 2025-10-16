@@ -29,8 +29,17 @@ export class Database<const Schema extends DatabaseSchema> {
    *
    * @see {@link IDBDatabase.name}
    */
-  get name() {
+  get name(): string {
     return this.#db.name;
+  }
+
+  /**
+   * The names of the object stores in the database.
+   *
+   * @see {@link IDBDatabase.objectStoreNames}
+   */
+  get storeNames(): DOMStringList {
+    return this.#db.objectStoreNames;
   }
 
   /**
