@@ -526,6 +526,22 @@ test("inline key and index", async (t) => {
     await rejects(finished, { name: "AbortError" });
   });
 
+  await t.test("equal index entries are sorted by key", async () => {
+    const tx = db.tx("num2name", "readwrite");
+    const store = tx.store("num2name");
+    await store.add({ id: 100, name: "test" });
+    await store.add({ id: 10, name: "test" });
+    await store.add({ id: 200, name: "test" });
+    await store.add({ id: -1, name: "test" });
+    await tx.done;
+    deepEqual(await db.getAllBy("num2name", "byName", KeyRange.only("test")), [
+      { id: -1, name: "test" },
+      { id: 10, name: "test" },
+      { id: 100, name: "test" },
+      { id: 200, name: "test" },
+    ]);
+  });
+
   db.close();
 });
 
