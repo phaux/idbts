@@ -23,8 +23,8 @@ export class DBCursor<Value, Key extends ValidKey, PrimaryKey extends ValidKey =
     return this.#cursor.primaryKey as PrimaryKey;
   }
 
-  get direction(): IDBCursorDirection {
-    return this.#cursor.direction;
+  get raw(): IDBCursor {
+    return this.#cursor;
   }
 
   /**
@@ -34,9 +34,11 @@ export class DBCursor<Value, Key extends ValidKey, PrimaryKey extends ValidKey =
    *
    * @see {@link IDBCursor.advance}
    */
-  advance(count: number): Promise<DBCursor<Value, Key, PrimaryKey>> {
+  async advance(count: number): Promise<DBCursor<Value, Key, PrimaryKey> | null> {
     this.#cursor.advance(count);
-    return idbReqToPromise(this.#cursor.request);
+    const cursor = await idbReqToPromise(this.#cursor.request);
+    if (cursor == null) return null;
+    return this;
   }
 
   /**
@@ -48,9 +50,11 @@ export class DBCursor<Value, Key extends ValidKey, PrimaryKey extends ValidKey =
    *
    * @see {@link IDBCursor.continue}
    */
-  continue(key?: Key): Promise<DBCursor<Value, Key, PrimaryKey>> {
+  async continue(key?: Key): Promise<DBCursor<Value, Key, PrimaryKey> | null> {
     this.#cursor.continue(key as IDBValidKey);
-    return idbReqToPromise(this.#cursor.request);
+    const cursor = await idbReqToPromise(this.#cursor.request);
+    if (cursor == null) return null;
+    return this;
   }
 
   /**
@@ -60,9 +64,11 @@ export class DBCursor<Value, Key extends ValidKey, PrimaryKey extends ValidKey =
    *
    * @see {@link IDBCursor.continuePrimaryKey}
    */
-  continuePrimaryKey(key: Key, primaryKey: PrimaryKey): Promise<DBCursor<Value, Key, PrimaryKey>> {
+  async continuePrimaryKey(key: Key, primaryKey: PrimaryKey): Promise<DBCursor<Value, Key, PrimaryKey> | null> {
     this.#cursor.continuePrimaryKey(key as IDBValidKey, primaryKey as IDBValidKey);
-    return idbReqToPromise(this.#cursor.request);
+    const cursor = await idbReqToPromise(this.#cursor.request);
+    if (cursor == null) return null;
+    return this;
   }
 
   /**

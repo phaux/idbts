@@ -273,6 +273,31 @@ test("simple key-value store", async (t) => {
       deepEqual(cb.mock.calls.length, 8);
     });
 
+    await t.test("openCursor", async () => {
+      {
+        const tx = db.tx("num2str", "readwrite");
+        const store = tx.store("num2str");
+        for (let i = 0; i < 10; i++) {
+          await store.put(`value ${i}`, i);
+        }
+        await tx.done;
+      }
+      {
+        const tx = db.tx("num2str", "readonly");
+        const store = tx.store("num2str");
+        let cursor = await store.openCursor();
+        let results: string[] = [];
+        while (cursor != null) {
+          results.push(cursor.value);
+          cursor = await cursor.advance(1);
+        }
+        deepEqual(
+          results,
+          Array.from({ length: 10 }, (_, i) => `value ${i}`),
+        );
+      }
+    });
+
     ac.abort();
     await rejects(finished, { name: "AbortError" });
   });
