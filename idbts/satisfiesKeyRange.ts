@@ -1,7 +1,9 @@
+import type { KeyRange, ValidKey } from "./KeyRange.ts";
+
 /**
  * Checks if a key satisfies a key range.
  */
-export function satisfiesKeyRange(key: IDBValidKey, range: IDBKeyRange | undefined) {
+export function satisfiesKeyRange(key: ValidKey, range: KeyRange<ValidKey> | undefined) {
   if (!range) return true;
   if (range.lower) {
     if (range.lowerOpen) {

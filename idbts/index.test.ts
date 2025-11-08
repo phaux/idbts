@@ -820,14 +820,14 @@ test("compound key and index", async (t) => {
     const tx = db.tx("points", "readonly");
     const store = tx.store("points");
     const idx = store.index("byLabel");
-    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<[string, string]>();
+    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<readonly [string, string]>();
     deepEqual(await idx.get(["foo", "bar"]), value);
     deepEqual(await idx.getAll(KeyRange.only(["foo", "bar"])), [value]);
     deepEqual(await idx.getAllKeys(KeyRange.only(["foo", "bar"])), [[1, 2]]);
     await tx.done;
     expectTypeOf(db.getAllBy<"points", "byLabel">)
       .parameter(2)
-      .toEqualTypeOf<KeyRange<[string, string]> | undefined>();
+      .toEqualTypeOf<KeyRange<readonly [string, string]> | undefined>();
     deepEqual(await db.getAllBy("points", "byLabel", KeyRange.only(["foo", "bar"])), [value]);
   });
 

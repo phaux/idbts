@@ -1,9 +1,10 @@
 import { idbReqToPromise } from "./idbReqToPromise.ts";
+import type { ValidKey } from "./KeyRange.ts";
 
 /**
  * A wrapper for {@link IDBCursor} with more strict types.
  */
-export class DBCursor<Value, Key extends IDBValidKey, PrimaryKey extends IDBValidKey = Key> {
+export class DBCursor<Value, Key extends ValidKey, PrimaryKey extends ValidKey = Key> {
   #cursor: IDBCursorWithValue;
 
   constructor(cursor: IDBCursorWithValue) {
@@ -48,7 +49,7 @@ export class DBCursor<Value, Key extends IDBValidKey, PrimaryKey extends IDBVali
    * @see {@link IDBCursor.continue}
    */
   continue(key?: Key): Promise<DBCursor<Value, Key, PrimaryKey>> {
-    this.#cursor.continue(key);
+    this.#cursor.continue(key as IDBValidKey);
     return idbReqToPromise(this.#cursor.request);
   }
 
@@ -60,7 +61,7 @@ export class DBCursor<Value, Key extends IDBValidKey, PrimaryKey extends IDBVali
    * @see {@link IDBCursor.continuePrimaryKey}
    */
   continuePrimaryKey(key: Key, primaryKey: PrimaryKey): Promise<DBCursor<Value, Key, PrimaryKey>> {
-    this.#cursor.continuePrimaryKey(key, primaryKey);
+    this.#cursor.continuePrimaryKey(key as IDBValidKey, primaryKey as IDBValidKey);
     return idbReqToPromise(this.#cursor.request);
   }
 
@@ -72,9 +73,9 @@ export class DBCursor<Value, Key extends IDBValidKey, PrimaryKey extends IDBVali
    * @see {@link IDBCursor.update}
    */
   async update(value: Value): Promise<PrimaryKey> {
-    await idbReqToPromise(this.#cursor.update(value));
+    const key = await idbReqToPromise(this.#cursor.update(value));
     this.#notify();
-    return this.#cursor.primaryKey as PrimaryKey;
+    return key as PrimaryKey;
   }
 
   /**

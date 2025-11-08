@@ -1,7 +1,7 @@
 import { DBCursor } from "./DBCursor.ts";
 import { DBIndex, type DBIndexSchema } from "./DBIndex.ts";
 import { idbReqToPromise } from "./idbReqToPromise.ts";
-import type { KeyRange, MaybeKeyRange } from "./KeyRange.ts";
+import type { KeyRange, MaybeKeyRange, ValidKey } from "./KeyRange.ts";
 import type { SchemaValue, StandardSchema, schema } from "./StandardSchema.ts";
 import type { OptionalArg } from "./typeUtils.ts";
 import type { ValuesAtPaths } from "./ValuesAtPaths.ts";
@@ -17,7 +17,7 @@ export interface DBStoreSchema extends IDBObjectStoreParameters {
    *
    * Alternatively, an inline key can be defined by specifying the {@link keyPath} property.
    */
-  key?: StandardSchema<IDBValidKey>;
+  key?: StandardSchema<ValidKey>;
   /**
    * The schema of the value.
    *
@@ -52,7 +52,7 @@ export class DBStore<const Schema extends DBStoreSchema> {
     value: SchemaValue<Schema["value"]>,
     ...[key]: OptionalArg<StoreInputKey<Schema>>
   ): Promise<StoreOutputKey<Schema>> {
-    const newKey = (await idbReqToPromise(this.#store.add(value, key))) as StoreOutputKey<Schema>;
+    const newKey = (await idbReqToPromise(this.#store.add(value, key as IDBValidKey))) as StoreOutputKey<Schema>;
     const chan = this.#getChannel();
     chan.postMessage(newKey);
     chan.close();
@@ -68,7 +68,7 @@ export class DBStore<const Schema extends DBStoreSchema> {
     value: SchemaValue<Schema["value"]>,
     ...[key]: OptionalArg<StoreInputKey<Schema>>
   ): Promise<StoreOutputKey<Schema>> {
-    const newKey = (await idbReqToPromise(this.#store.put(value, key))) as StoreOutputKey<Schema>;
+    const newKey = (await idbReqToPromise(this.#store.put(value, key as IDBValidKey))) as StoreOutputKey<Schema>;
     const chan = this.#getChannel();
     chan.postMessage(newKey);
     chan.close();
@@ -102,7 +102,7 @@ export class DBStore<const Schema extends DBStoreSchema> {
    * @see {@link IDBObjectStore.get}
    */
   get(key: StoreOutputKey<Schema>): Promise<SchemaValue<Schema["value"]>> {
-    return idbReqToPromise(this.#store.get(key));
+    return idbReqToPromise(this.#store.get(key as IDBValidKey));
   }
 
   /**
@@ -157,7 +157,7 @@ export class DBStore<const Schema extends DBStoreSchema> {
    * @see {@link IDBObjectStore.delete}
    */
   async delete(key: MaybeKeyRange<StoreOutputKey<Schema>>): Promise<void> {
-    await idbReqToPromise(this.#store.delete(key));
+    await idbReqToPromise(this.#store.delete(key as IDBValidKey));
     const chan = this.#getChannel();
     chan.postMessage(null);
     chan.close();

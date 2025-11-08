@@ -25,7 +25,7 @@ export interface OpenDBOptions {
   /**
    * Fired when this database is already opened and a structure change was requested elsewhere.
    * For example, if the database was opened with a higher version in another tab.
-   * 
+   *
    * You can use this callback to inform the user that the app needs to be reloaded.
    *
    * @see {@link IDBDatabase.onversionchange}
@@ -80,7 +80,7 @@ export function openDB<const T extends DatabaseSchema>(
             for (const indexSchema of Object.entries(storeSchema.indexes)) {
               const [name, { keyPath, ...params }] = indexSchema;
               if (!store.indexNames.contains(name)) {
-                store.createIndex(name, keyPath, params);
+                store.createIndex(name, keyPath as string | string[], params);
               }
             }
           }
