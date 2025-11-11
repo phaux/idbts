@@ -1,6 +1,6 @@
 import type { Observable } from "observable-polyfill/fn";
 import type { IndexKey } from "./DBIndex.ts";
-import type { DBStore, DBStoreSchema, StoreInputKey, StoreOutputKey } from "./DBStore.ts";
+import type { AnyStoreSchema, DBStore, StoreInputKey, StoreOutputKey } from "./DBStore.ts";
 import { DBTransaction, type DBTransactionMode } from "./DBTransaction.ts";
 import type { KeyRange, MaybeKeyRange } from "./KeyRange.ts";
 import { satisfiesKeyRange } from "./satisfiesKeyRange.ts";
@@ -12,12 +12,12 @@ import type { MaybeArray, OptionalArg, ToArray } from "./typeUtils.ts";
  *
  * It's a map of store names to their schemas.
  */
-export type DatabaseSchema = Record<string, DBStoreSchema>;
+export type AnyDatabaseSchema = Record<string, AnyStoreSchema>;
 
 /**
  * A wrapper for {@link IDBDatabase} with more strict types.
  */
-export class Database<const Schema extends DatabaseSchema> {
+export class Database<const Schema extends AnyDatabaseSchema> implements Disposable {
   #db: IDBDatabase;
 
   constructor(db: IDBDatabase) {
@@ -225,7 +225,7 @@ export class Database<const Schema extends DatabaseSchema> {
   async delete<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
     key: MaybeKeyRange<StoreOutputKey<Schema[StoreName]>>,
-  ) {
+  ): Promise<void> {
     const tx = this.tx([storeName], "readwrite");
     const store = tx.store();
     await store.delete(key as any);
@@ -235,7 +235,7 @@ export class Database<const Schema extends DatabaseSchema> {
   /**
    * Deletes all records from the object store.
    */
-  async clear<const StoreName extends keyof Schema & string>(storeName: StoreName) {
+  async clear<const StoreName extends keyof Schema & string>(storeName: StoreName): Promise<void> {
     const tx = this.tx([storeName], "readwrite");
     const store = tx.store();
     await store.clear();
@@ -247,11 +247,20 @@ export class Database<const Schema extends DatabaseSchema> {
    *
    * @see {@link IDBDatabase.close}
    */
-  close() {
+  close(): void {
     this.#db.close();
+  }
+
+  [Symbol.dispose](): void {
+    this.close();
   }
 
   #getChannel(storeName: string) {
     return new BroadcastChannel(`${this.name}-${storeName}`);
   }
 }
+
+/**
+ * Extracts the schema of a {@link Database}.
+ */
+export type DatabaseSchemaOf<T extends Database<AnyDatabaseSchema>> = T extends Database<infer Schema> ? Schema : never;

@@ -1,5 +1,5 @@
 import { DBCursor } from "./DBCursor.ts";
-import type { DBStoreSchema, StoreOutputKey } from "./DBStore.ts";
+import type { AnyStoreSchema, StoreOutputKey } from "./DBStore.ts";
 import { idbReqToPromise } from "./idbReqToPromise.ts";
 import type { KeyRange, ValidKey } from "./KeyRange.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
@@ -8,7 +8,7 @@ import type { ValuesAtPaths } from "./ValuesAtPaths.ts";
 /**
  * A schema for a {@link DBIndex}.
  */
-export interface DBIndexSchema extends IDBIndexParameters {
+export interface AnyIndexSchema extends IDBIndexParameters {
   /**
    * The key path of the index.
    *
@@ -23,7 +23,7 @@ export interface DBIndexSchema extends IDBIndexParameters {
  * A wrapper for {@link IDBIndex} with more strict types.
  */
 export class DBIndex<
-  const StoreSchema extends DBStoreSchema,
+  const StoreSchema extends AnyStoreSchema,
   const Name extends keyof StoreSchema["indexes"] & string,
 > {
   #index: IDBIndex;
@@ -103,7 +103,7 @@ export class DBIndex<
  * Additionally, if the index is multi-entry, the key type is flattened if it is an array.
  */
 export type IndexKey<
-  StoreSchema extends DBStoreSchema,
+  StoreSchema extends AnyStoreSchema,
   IndexName extends keyof StoreSchema["indexes"] & string,
 > = StoreSchema["indexes"] extends {}
   ? ValuesAtPaths<

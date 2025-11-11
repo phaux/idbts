@@ -1,4 +1,4 @@
-import { type DatabaseSchema, Database } from "./Database.ts";
+import { type AnyDatabaseSchema, Database } from "./Database.ts";
 
 /**
  * Options for {@link openDB}.
@@ -49,7 +49,7 @@ export interface OpenDBOptions {
  *
  * @see {@link indexedDB.open}
  */
-export function openDB<const T extends DatabaseSchema>(
+export function openDB<const T extends AnyDatabaseSchema>(
   name: string,
   version: number,
   schema: T,

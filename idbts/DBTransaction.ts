@@ -1,4 +1,4 @@
-import type { DatabaseSchema } from "./Database.ts";
+import type { AnyDatabaseSchema } from "./Database.ts";
 import { DBStore, type ReadonlyDBStore } from "./DBStore.ts";
 import type { ElementsUnlessSingle, OptionalArg, Or } from "./typeUtils.ts";
 
@@ -6,10 +6,11 @@ import type { ElementsUnlessSingle, OptionalArg, Or } from "./typeUtils.ts";
  * A wrapper for {@link IDBTransaction} with more strict types.
  */
 export class DBTransaction<
-  const DBSchema extends DatabaseSchema,
+  const DBSchema extends AnyDatabaseSchema,
   const StoreNames extends readonly (keyof DBSchema)[],
   const Mode extends DBTransactionMode,
-> {
+> implements AsyncDisposable
+{
   #tx: IDBTransaction;
   #done: Promise<void>;
 
@@ -44,6 +45,10 @@ export class DBTransaction<
    * @see {@link IDBTransaction.onerror}
    */
   get done(): Promise<void> {
+    return this.#done;
+  }
+
+  [Symbol.asyncDispose](): Promise<void> {
     return this.#done;
   }
 

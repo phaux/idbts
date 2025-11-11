@@ -1,5 +1,5 @@
 import { DBCursor } from "./DBCursor.ts";
-import { DBIndex, type DBIndexSchema } from "./DBIndex.ts";
+import { DBIndex, type AnyIndexSchema } from "./DBIndex.ts";
 import { idbReqToPromise } from "./idbReqToPromise.ts";
 import type { KeyRange, MaybeKeyRange, ValidKey } from "./KeyRange.ts";
 import type { SchemaValue, StandardSchema, schema } from "./StandardSchema.ts";
@@ -9,7 +9,7 @@ import type { ValuesAtPaths } from "./ValuesAtPaths.ts";
 /**
  * A schema for a {@link DBStore}.
  */
-export interface DBStoreSchema extends IDBObjectStoreParameters {
+export interface AnyStoreSchema extends IDBObjectStoreParameters {
   /**
    * The schema of the external key.
    *
@@ -17,7 +17,7 @@ export interface DBStoreSchema extends IDBObjectStoreParameters {
    *
    * Alternatively, an inline key can be defined by specifying the {@link keyPath} property.
    */
-  key?: StandardSchema<ValidKey>;
+  key?: StandardSchema<ValidKey> | undefined;
   /**
    * The schema of the value.
    *
@@ -30,13 +30,13 @@ export interface DBStoreSchema extends IDBObjectStoreParameters {
    *
    * This is a map of index names to their schemas.
    */
-  indexes?: Record<string, DBIndexSchema>;
+  indexes?: Record<string, AnyIndexSchema> | undefined;
 }
 
 /**
  * A wrapper for {@link IDBObjectStore} with more strict types.
  */
-export class DBStore<const Schema extends DBStoreSchema> {
+export class DBStore<const Schema extends AnyStoreSchema> {
   #store: IDBObjectStore;
 
   constructor(store: IDBObjectStore) {
@@ -194,7 +194,7 @@ export class DBStore<const Schema extends DBStoreSchema> {
  *
  * It omits the methods that modify the object store.
  */
-export type ReadonlyDBStore<Schema extends DBStoreSchema> = Omit<
+export type ReadonlyDBStore<Schema extends AnyStoreSchema> = Omit<
   DBStore<Schema>,
   "add" | "put" | "update" | "delete" | "clear"
 >;
@@ -204,7 +204,7 @@ export type ReadonlyDBStore<Schema extends DBStoreSchema> = Omit<
  *
  * It can be either the defined key type or undefined if the store has an auto-incrementing key.
  */
-export type StoreInputKey<Schema extends DBStoreSchema> =
+export type StoreInputKey<Schema extends AnyStoreSchema> =
   | SchemaValue<Schema["key"]>
   | (Schema["autoIncrement"] extends true ? undefined : never);
 
@@ -213,7 +213,7 @@ export type StoreInputKey<Schema extends DBStoreSchema> =
  *
  * It can be either the defined key type, auto-incrementing number, or a type at the specified key path.
  */
-export type StoreOutputKey<Schema extends DBStoreSchema> =
+export type StoreOutputKey<Schema extends AnyStoreSchema> =
   | SchemaValue<Schema["key"]>
   | (Schema["autoIncrement"] extends true ? number : never)
   | ValuesAtPaths<SchemaValue<Schema["value"]>, Schema["keyPath"]>;
