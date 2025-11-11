@@ -34,7 +34,9 @@ export type ValueAtPath<Value, Path extends string> = Value extends {}
     ? Prop extends keyof Value
       ? ValueAtPath<Value[Prop], Rest>
       : never
-    : Path extends keyof Value
-      ? Value[Path]
-      : never
+    : Path extends ""
+      ? Value
+      : Path extends keyof Value
+        ? Value[Path]
+        : never
   : never;

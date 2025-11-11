@@ -570,6 +570,51 @@ test("inline key and index", async (t) => {
   db.close();
 });
 
+test("empty string key and index", async (t) => {
+  const db = await openDB("empty-string-key+index", 1, {
+    strings: {
+      keyPath: "",
+      value: schema<string>(),
+      indexes: {
+        byValue: {
+          keyPath: "",
+        },
+      },
+    },
+  });
+
+  await t.test("add", async () => {
+    const tx = db.tx("strings", "readwrite");
+    const store = tx.store("strings");
+    expectTypeOf(store.add).parameter(1).toEqualTypeOf<undefined>();
+    expectTypeOf(store.add).returns.resolves.toEqualTypeOf<string>();
+    deepEqual(await store.add("foo"), "foo");
+    expectTypeOf(store.put).parameter(1).toEqualTypeOf<undefined>();
+    expectTypeOf(store.put).returns.resolves.toEqualTypeOf<string>();
+    deepEqual(await store.put("bar"), "bar");
+    await tx.done;
+  });
+
+  await t.test("get by primary key", async () => {
+    const tx = db.tx("strings", "readonly");
+    const store = tx.store("strings");
+    expectTypeOf(store.get).parameter(0).toEqualTypeOf<string>();
+    deepEqual(await store.get("foo"), "foo");
+    await tx.done;
+  });
+
+  await t.test("get by index", async () => {
+    const tx = db.tx("strings", "readonly");
+    const store = tx.store("strings");
+    const idx = store.index("byValue");
+    expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
+    deepEqual(await idx.get("bar"), "bar");
+    await tx.done;
+  });
+
+  db.close();
+});
+
 test("deeply nested key and index", async (t) => {
   const db = await openDB("deeply-nested-key+index", 1, {
     deeplyNested: {
