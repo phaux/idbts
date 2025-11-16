@@ -9,8 +9,7 @@ export class DBTransaction<
   const DBSchema extends AnyDatabaseSchema,
   const StoreNames extends readonly (keyof DBSchema)[],
   const Mode extends DBTransactionMode,
-> implements AsyncDisposable
-{
+> {
   #tx: IDBTransaction;
   #done: Promise<void>;
 
@@ -45,10 +44,6 @@ export class DBTransaction<
    * @see {@link IDBTransaction.onerror}
    */
   get done(): Promise<void> {
-    return this.#done;
-  }
-
-  [Symbol.asyncDispose](): Promise<void> {
     return this.#done;
   }
 

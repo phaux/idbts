@@ -17,7 +17,7 @@ export type AnyDatabaseSchema = Record<string, AnyStoreSchema>;
 /**
  * A wrapper for {@link IDBDatabase} with more strict types.
  */
-export class Database<const Schema extends AnyDatabaseSchema> implements Disposable {
+export class Database<const Schema extends AnyDatabaseSchema> {
   #db: IDBDatabase;
 
   constructor(db: IDBDatabase) {
@@ -249,10 +249,6 @@ export class Database<const Schema extends AnyDatabaseSchema> implements Disposa
    */
   close(): void {
     this.#db.close();
-  }
-
-  [Symbol.dispose](): void {
-    this.close();
   }
 
   #getChannel(storeName: string) {
