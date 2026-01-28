@@ -59,18 +59,18 @@ test("primitive key ranges", async (t) => {
 
 test("array key ranges", async (t) => {
   await t.test("only", () => {
-    expectTypeOf(KeyRange.only<[string, number]>).parameters.toEqualTypeOf<[[string, number]]>();
-    const r: KeyRange<[string, number]> = KeyRange.only(["m", 1]);
+    expectTypeOf(KeyRange.only<readonly [string, number]>).parameters.toEqualTypeOf<[readonly [string, number]]>();
+    const r: KeyRange<readonly [string, number]> = KeyRange.only(["m", 1]);
     ok(!r.includes(["l", 1]));
     ok(r.includes(["m", 1]));
     ok(!r.includes(["n", 1]));
   });
 
   await t.test("bound", () => {
-    expectTypeOf(KeyRange.bound<[string, number]>)
+    expectTypeOf(KeyRange.bound<readonly [string, number]>)
       .parameter<0 | 1>(0)
-      .toEqualTypeOf<[string, number]>();
-    const r: KeyRange<[string, number]> = KeyRange.bound(["m", 1], ["n", 2]);
+      .toEqualTypeOf<readonly [string, number]>();
+    const r: KeyRange<readonly [string, number]> = KeyRange.bound(["m", 1], ["n", 2]);
     ok(!r.includes(["m", 0]));
     ok(r.includes(["m", 1]));
     ok(r.includes(["n", 2]));

@@ -12,26 +12,31 @@ export interface KeyRangeCtor {
    * If `lowerExclusive` is true, `lowerKey` is not included in the range.
    * If `upperExclusive` is true, `upperKey` is not included in the range.
    */
-  bound<T extends ValidKey>(lowerKey: T, upperKey: T, lowerExclusive?: boolean, upperExclusive?: boolean): KeyRange<T>;
+  bound<const T extends ValidKey>(
+    lowerKey: T,
+    upperKey: T,
+    lowerExclusive?: boolean,
+    upperExclusive?: boolean,
+  ): KeyRange<T>;
 
   /**
    * Returns a new IDBKeyRange starting at `lowerKey` with no upper bound.
    *
    * If `exclusive` is true, `lowerKey` is not included in the range.
    */
-  lowerBound<T extends ValidKey>(lowerKey: T, exclusive?: boolean): KeyRange<T>;
+  lowerBound<const T extends ValidKey>(lowerKey: T, exclusive?: boolean): KeyRange<T>;
 
   /**
    * Returns a new IDBKeyRange with no lower bound and ending at `upperKey`.
    *
    * If `exclusive` is true, `upperKey` is not included in the range.
    */
-  upperBound<T extends ValidKey>(upperKey: T, exclusive?: boolean): KeyRange<T>;
+  upperBound<const T extends ValidKey>(upperKey: T, exclusive?: boolean): KeyRange<T>;
 
   /**
    * Returns a new IDBKeyRange spanning only `key`.
    */
-  only<T extends ValidKey>(key: T): KeyRange<T>;
+  only<const T extends ValidKey>(key: T): KeyRange<T>;
 }
 
 /**
