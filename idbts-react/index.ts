@@ -1,7 +1,7 @@
-import type { SchemaValue, Database, DatabaseSchema, IndexKey, KeyRange, StoreOutputKey } from "idbts";
+import type { AnyDatabaseSchema, Database, IndexKey, KeyRange, SchemaValue, StoreOutputKey } from "idbts";
 import { useObservable } from "./useObservable.ts";
 
-export function useDBQuery<Schema extends DatabaseSchema, StoreName extends keyof Schema & string>(
+export function useDBQuery<Schema extends AnyDatabaseSchema, StoreName extends keyof Schema & string>(
   db: Database<Schema>,
   storeName: StoreName,
   key: StoreOutputKey<Schema[StoreName]>,
@@ -9,7 +9,7 @@ export function useDBQuery<Schema extends DatabaseSchema, StoreName extends keyo
   return useObservable(() => db.watch(storeName, key), [db.name, storeName, key]);
 }
 
-export function useDBQueryAll<Schema extends DatabaseSchema, StoreName extends keyof Schema & string>(
+export function useDBQueryAll<Schema extends AnyDatabaseSchema, StoreName extends keyof Schema & string>(
   db: Database<Schema>,
   storeName: StoreName,
   range?: KeyRange<StoreOutputKey<Schema[StoreName]>>,
@@ -18,7 +18,7 @@ export function useDBQueryAll<Schema extends DatabaseSchema, StoreName extends k
 }
 
 export function useDBQueryAllBy<
-  Schema extends DatabaseSchema,
+  Schema extends AnyDatabaseSchema,
   StoreName extends keyof Schema & string,
   IndexName extends keyof Schema[StoreName]["indexes"] & string,
 >(
