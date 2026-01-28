@@ -44,6 +44,13 @@ export class DBStore<const Schema extends AnyStoreSchema> {
   }
 
   /**
+   * The unwrapped {@link IDBObjectStore}.
+   */
+  get raw() {
+    return this.#store;
+  }
+
+  /**
    * Adds a new record to the object store.
    *
    * @see {@link IDBObjectStore.add}

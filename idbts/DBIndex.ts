@@ -33,6 +33,13 @@ export class DBIndex<
   }
 
   /**
+   * The wrapped {@link IDBIndex}.
+   */
+  get raw(): IDBIndex {
+    return this.#index;
+  }
+
+  /**
    * Retrieves a record from the index.
    *
    * @see {@link IDBIndex.get}

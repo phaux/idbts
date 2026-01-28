@@ -98,6 +98,7 @@ test("simple key-value store", async (t) => {
     const tx = db.tx(["num2str"], "readwrite");
     expectTypeOf(tx.store).parameter(0).toEqualTypeOf<"num2str" | undefined>();
     const store = tx.store("num2str");
+    deepEqual(store.raw.name, "num2str");
     expectTypeOf(store.add).parameter(0).toEqualTypeOf<string>();
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<number>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<number>();
@@ -115,6 +116,7 @@ test("simple key-value store", async (t) => {
     const tx = db.tx("str2unknown", "readwrite");
     expectTypeOf(tx.store).parameter(0).toEqualTypeOf<"str2unknown" | undefined>();
     const store = tx.store("str2unknown");
+    deepEqual(store.raw.name, "str2unknown");
     expectTypeOf(store.add).parameter(0).toEqualTypeOf<unknown>();
     expectTypeOf(store.add).parameter(1).toEqualTypeOf<string>();
     expectTypeOf(store.add).returns.resolves.toEqualTypeOf<string>();
@@ -429,6 +431,7 @@ test("inline key and index", async (t) => {
     const tx = db.tx("num2name");
     const store = tx.store("num2name");
     const idx = store.index("byName");
+    deepEqual(idx.raw.name, "byName");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<string>();
     deepEqual(await idx.get("foo"), { id: 1, name: "foo" });
     deepEqual(await idx.getAll(), [{ id: 1, name: "foo" }]);
@@ -454,6 +457,7 @@ test("inline key and index", async (t) => {
     const tx = db.tx("union2date");
     const store = tx.store("union2date");
     const idx = store.index("byDate");
+    deepEqual(idx.raw.name, "byDate");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<Date>();
     deepEqual(await idx.get(now), { id: 1, created: now });
     deepEqual(await idx.getAll(), [{ id: 1, created: now }]);
