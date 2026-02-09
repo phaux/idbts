@@ -3,7 +3,6 @@ import type { IndexKey } from "./DBIndex.ts";
 import type { AnyStoreSchema, DBStore, StoreInputKey, StoreOutputKey } from "./DBStore.ts";
 import { DBTransaction, type DBTransactionMode } from "./DBTransaction.ts";
 import type { KeyRange, MaybeKeyRange } from "./KeyRange.ts";
-import { satisfiesKeyRange } from "./satisfiesKeyRange.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
 import type { MaybeArray, OptionalArg, ToArray } from "./typeUtils.ts";
 
@@ -174,7 +173,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
     return new O((subscriber) => {
       const chan = this.#getChannel(storeName);
       const reload = (e?: MessageEvent<IDBValidKey>) => {
-        if (e?.data == null || satisfiesKeyRange(e.data, range)) {
+        if (e?.data == null || range == null || range.includes(e.data)) {
           this.getAll(storeName, range).then(
             (v) => subscriber.next(v),
             (e) => subscriber.error(e),

@@ -308,6 +308,32 @@ test("simple key-value store", async (t) => {
     const ac = new AbortController();
     const cb = t.mock.fn((v: unknown[]) => v);
     const called = whenMockCalled(cb); // increases call count by 2
+    const finished = db.watchAll("str2unknown").forEach(cb, { signal: ac.signal });
+    deepEqual(await called, [{ value: true }]); // from previous test
+    deepEqual(cb.mock.calls.length, 2);
+
+    await t.test("add", async () => {
+      const called = whenMockCalled(cb);
+      await db.put("str2unknown", "some value", "zzz");
+      deepEqual(await called, [{ value: true }, "some value"]);
+      deepEqual(cb.mock.calls.length, 4);
+    });
+
+    await t.test("delete", async () => {
+      const called = whenMockCalled(cb);
+      await db.delete("str2unknown", "zzz");
+      deepEqual(await called, [{ value: true }]);
+      deepEqual(cb.mock.calls.length, 6);
+    });
+
+    ac.abort();
+    await rejects(finished, { name: "AbortError" });
+  });
+
+  await t.test("watch all with range", async (t) => {
+    const ac = new AbortController();
+    const cb = t.mock.fn((v: unknown[]) => v);
+    const called = whenMockCalled(cb); // increases call count by 2
     const finished = db.watchAll("str2unknown", KeyRange.bound("b", "x")).forEach(cb, { signal: ac.signal });
     deepEqual(await called, [{ value: true }]); // from previous test
     deepEqual(cb.mock.calls.length, 2);
