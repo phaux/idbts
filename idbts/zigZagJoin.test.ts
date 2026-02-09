@@ -107,6 +107,26 @@ test("zigZagJoin", async (t) => {
         { id: 6, x: 1, y: 0 },
       ]);
     });
+
+    await t.test("works with 2 filters reversed", async () => {
+      const tx = db.tx("items", "readonly");
+      const results = await Array.fromAsync(
+        zigZagJoin(
+          tx.store("items"),
+          [
+            ["byX", 1],
+            ["byY", 0],
+          ],
+          null,
+          "prev",
+        ),
+      );
+      await tx.done;
+      deepEqual(results, [
+        { id: 6, x: 1, y: 0 },
+        { id: 2, x: 1, y: 0 },
+      ]);
+    });
   });
 
   await t.test("post database", { only: true }, async (t) => {
@@ -178,6 +198,28 @@ test("zigZagJoin", async (t) => {
       ]);
     });
 
+    await t.test("works with 2 filters reversed", async () => {
+      const tx = db.tx("items", "readonly");
+      const results = await Array.fromAsync(
+        zigZagJoin(
+          tx.store("items"),
+          [
+            ["byTagAndTime", ["foo"]],
+            ["byTitleAndTime", ["bar"]],
+          ],
+          null,
+          "prev",
+        ),
+      );
+      await tx.done;
+      deepEqual(results, [
+        { id: 2, timestamp: 1_530, tag: "foo", title: "bar" },
+        { id: 5, timestamp: 1_520, tag: "foo", title: "bar" },
+        { id: 3, timestamp: 1_520, tag: "foo", title: "bar" },
+        { id: 6, timestamp: 1_510, tag: "foo", title: "bar" },
+      ]);
+    });
+
     await t.test("works with 2 filters and range", async () => {
       const tx = db.tx("items", "readonly");
       const results = await Array.fromAsync(
@@ -195,6 +237,27 @@ test("zigZagJoin", async (t) => {
         { id: 3, timestamp: 1_520, tag: "foo", title: "bar" },
         { id: 5, timestamp: 1_520, tag: "foo", title: "bar" },
         { id: 2, timestamp: 1_530, tag: "foo", title: "bar" },
+      ]);
+    });
+
+    await t.test("works with 2 filters and range reversed", async () => {
+      const tx = db.tx("items", "readonly");
+      const results = await Array.fromAsync(
+        zigZagJoin(
+          tx.store("items"),
+          [
+            ["byTagAndTime", ["foo"]],
+            ["byTitleAndTime", ["bar"]],
+          ],
+          KeyRange.lowerBound([1_520]),
+          "prev",
+        ),
+      );
+      await tx.done;
+      deepEqual(results, [
+        { id: 2, timestamp: 1_530, tag: "foo", title: "bar" },
+        { id: 5, timestamp: 1_520, tag: "foo", title: "bar" },
+        { id: 3, timestamp: 1_520, tag: "foo", title: "bar" },
       ]);
     });
   });

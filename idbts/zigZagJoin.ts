@@ -167,9 +167,7 @@ class PrefixCursor<T> {
   async continuePostfix(postfix: ValidKey) {
     let cursor = null;
     if (Array.isArray(this.prefix)) {
-      if (!Array.isArray(postfix)) {
-        throw new Error("Postfix must be an array when prefix is an array");
-      }
+      if (!Array.isArray(postfix)) throw new Error("Postfix must be an array when prefix is an array");
       // If postfix is an array then it contains index key and primary key.
       const keyPostfix = postfix.slice(0, postfix.length - 1);
       const primaryKey = postfix[postfix.length - 1];
