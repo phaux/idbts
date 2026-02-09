@@ -49,8 +49,8 @@ export type ValidKey = string | number | Date | BufferSource | readonly ValidKey
  * Used to query object stores.
  */
 export interface KeyRange<out T extends ValidKey> extends IDBKeyRange {
-  readonly lower: T;
-  readonly upper: T;
+  readonly lower: T | undefined;
+  readonly upper: T | undefined;
 }
 
 /**

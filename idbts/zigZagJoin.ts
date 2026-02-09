@@ -11,7 +11,7 @@ import type { SchemaValue } from "./StandardSchema.ts";
  * Example:
  *
  * ```js
- * const results = await Array.fromAsync(zigZagJoin(db, "posts", [
+ * const results = await Array.fromAsync(zigZagJoin(store, [
  *   ["byUser", "kazik"],
  *   ["byTag", "photography"],
  * ]));
@@ -31,7 +31,7 @@ import type { SchemaValue } from "./StandardSchema.ts";
  * Example:
  *
  * ```js
- * const results = await Array.fromAsync(zigZagJoin(db, "posts", [
+ * const results = await Array.fromAsync(zigZagJoin(store, [
  *   // only first values of the compound indexes are provided
  *   // (date is omitted and will be only used for sorting)
  *   ["byUserAndDate", ["kazik"]],
@@ -41,10 +41,28 @@ import type { SchemaValue } from "./StandardSchema.ts";
  *
  * This will turn the filter values into ranges automatically.
  * It's important to make sure that the omitted value is the same field in every filter condition.
+ * You can limit the range further by providing the third argument.
+ *
+ * Example:
+ *
+ * ```js
+ * const results = await Array.fromAsync(
+ *   zigZagJoin(
+ *     store,
+ *     [
+ *       ["byUserAndDate", ["kazik"]],
+ *       ["byTagAndDate", ["photography"]],
+ *     ],
+ *     KeyRange.upperBound([Date.now()]),
+ *   ),
+ * );
+ * ```
  */
 export async function* zigZagJoin<Schema extends AnyStoreSchema>(
   store: ReadonlyDBStore<Schema>,
   filters: StoreFilters<Schema>,
+  range?: KeyRange<readonly ValidKey[]> | null | undefined,
+  direction?: "next" | "prev",
 ): AsyncIterableIterator<SchemaValue<Schema["value"]>, undefined, undefined> {
   if (filters.length === 0) {
     throw new Error("No filters provided");
@@ -52,19 +70,25 @@ export async function* zigZagJoin<Schema extends AnyStoreSchema>(
 
   // Create a cursor for every filter.
   let cursors = await Promise.all(
-    filters.map(([indexName, value]) => PrefixCursor.init(store.index(indexName), value)),
+    filters.map(([indexName, value]) => PrefixCursor.init(store.index(indexName), value, range, direction)),
   );
 
   while (true) {
     // If any cursor is null, we've reached the end.
-    if (!cursors.every((cursor) => cursor != null)) return;
+    if (!cursors.every((cursor) => cursor != null)) break;
     // All cursors are pointing to some item.
 
     // Find out the largest postfix of all current items.
-    const largestPostfix = cursors.map((cursor) => cursor.postfix).reduce((a, b) => (indexedDB.cmp(a, b) > 0 ? a : b));
+    const furthestPostfix = cursors
+      .map((cursor) => cursor.postfix)
+      .reduce((a, b) => {
+        const order = indexedDB.cmp(a, b);
+        if (direction === "prev") return order < 0 ? a : b;
+        return order > 0 ? a : b;
+      });
 
     // Check if all cursors are pointing to the same item.
-    if (cursors.every((cursor) => indexedDB.cmp(cursor.postfix, largestPostfix) === 0)) {
+    if (cursors.every((cursor) => indexedDB.cmp(cursor.postfix, furthestPostfix) === 0)) {
       // If so, we found a match.
       yield cursors[0]!.cursor.value;
       // Move all cursors to their next item and repeat.
@@ -77,9 +101,9 @@ export async function* zigZagJoin<Schema extends AnyStoreSchema>(
     cursors = await Promise.all(
       cursors.map((cursor) => {
         // If the cursor is already pointing to the largest postfix, leave it as is.
-        if (indexedDB.cmp(cursor.postfix, largestPostfix) === 0) return cursor;
+        if (indexedDB.cmp(cursor.postfix, furthestPostfix) === 0) return cursor;
         // Otherwise, move it to at least the largest postfix.
-        return cursor.continuePostfix(largestPostfix);
+        return cursor.continuePostfix(furthestPostfix);
       }),
     );
   }
@@ -105,13 +129,16 @@ class PrefixCursor<T> {
   static async init<
     const StoreSchema extends AnyStoreSchema,
     const IndexName extends keyof StoreSchema["indexes"] & string,
-  >(index: DBIndex<StoreSchema, IndexName>, value: ValidKey) {
-    const cursor = Array.isArray(value)
-      ? // Treat the array value as a prefix.
-        // This will select all compound values starting with the prefix.
-        await index.openCursor(KeyRange.bound(value, [...value, [[]]]) as any, "next")
-      : // Open a cursor for the exact value.
-        await index.openCursor(KeyRange.only(value) as any);
+  >(
+    index: DBIndex<StoreSchema, IndexName>,
+    value: ValidKey,
+    range?: KeyRange<readonly ValidKey[]> | null | undefined,
+    direction?: "next" | "prev",
+  ) {
+    // Treat an array value as a prefix.
+    // This will select all compound values starting with the prefix.
+    const fullRange = Array.isArray(value) ? concatRange(value, range) : KeyRange.only(value);
+    const cursor = await index.openCursor(fullRange as any, direction);
     if (cursor == null) return null;
     return new PrefixCursor(value, cursor);
   }
@@ -124,27 +151,55 @@ class PrefixCursor<T> {
   async continue() {
     const cursor = await this.cursor.continue();
     if (cursor == null) return null;
+    this.cursor = cursor;
     return this;
   }
 
-  get postfix() {
+  get postfix(): ValidKey {
     // For simple query, the postfix is just the primary key.
     if (!Array.isArray(this.prefix)) return this.cursor.primaryKey;
     // If query value was a prefix, the postfix includes the part of the key after the prefix.
     const keyPostfix = (this.cursor.key as ValidKey[]).slice(this.prefix.length);
-    return [...keyPostfix, this.cursor.primaryKey];
+    const postfix = [...keyPostfix, this.cursor.primaryKey];
+    return postfix;
   }
 
   async continuePostfix(postfix: ValidKey) {
-    const cursor = Array.isArray(postfix)
-      ? // If postfix was an array then it contains index key and primary key.
-        await this.cursor.continuePrimaryKey(
-          [...(this.prefix as ValidKey[]), ...postfix.slice(0, postfix.length - 1)],
-          postfix[postfix.length - 1],
-        )
-      : // If postfix was a simple value, it's just the primary key.
-        await this.cursor.continuePrimaryKey(this.prefix, postfix);
+    let cursor = null;
+    if (Array.isArray(this.prefix)) {
+      if (!Array.isArray(postfix)) {
+        throw new Error("Postfix must be an array when prefix is an array");
+      }
+      // If postfix is an array then it contains index key and primary key.
+      const keyPostfix = postfix.slice(0, postfix.length - 1);
+      const primaryKey = postfix[postfix.length - 1];
+      const key = [...this.prefix, ...keyPostfix];
+      cursor = await this.cursor.continuePrimaryKey(key, primaryKey);
+    } else {
+      cursor = await this.cursor.continuePrimaryKey(this.prefix, postfix);
+    }
+
     if (cursor == null) return null;
+    this.cursor = cursor;
     return this;
   }
+}
+
+/**
+ * Given a prefix and a range, returns a new range that combines them.
+ *
+ * For example, given prefix `["a"]` and range `[1, 3]`, returns range from `["a", 1]` to `["a", 3]`.
+ *
+ * If range is null, returns range which includes all keys with the given prefix.
+ */
+function concatRange(
+  prefix: readonly ValidKey[],
+  range: KeyRange<readonly ValidKey[]> | null | undefined,
+): KeyRange<readonly ValidKey[]> | null {
+  return KeyRange.bound(
+    range?.lower != null ? [...prefix, ...range.lower] : prefix,
+    [...prefix, ...(range?.upper ?? ([[]] as const))],
+    range?.lowerOpen,
+    range?.upperOpen,
+  );
 }

@@ -18,8 +18,8 @@ test("primitive key ranges", async (t) => {
   await t.test("bound", () => {
     expectTypeOf(KeyRange.bound<string>).parameters.toEqualTypeOf<[string, string, boolean?, boolean?]>();
     const r: KeyRange<string> = KeyRange.bound("m", "n");
-    expectTypeOf(r.lower).toEqualTypeOf<string>();
-    expectTypeOf(r.upper).toEqualTypeOf<string>();
+    expectTypeOf(r.lower).toEqualTypeOf<string | undefined>();
+    expectTypeOf(r.upper).toEqualTypeOf<string | undefined>();
     ok(!r.includes("l"));
     ok(r.includes("m"));
     ok(r.includes("n"));
