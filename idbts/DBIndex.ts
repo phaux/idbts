@@ -53,7 +53,7 @@ export class DBIndex<
    *
    * @see {@link IDBIndex.getAll}
    */
-  getAll(keys?: KeyRange<IndexKey<StoreSchema, Name>>): Promise<SchemaValue<StoreSchema["value"]>[]> {
+  getAll(keys?: KeyRange<IndexKey<StoreSchema, Name>> | null): Promise<SchemaValue<StoreSchema["value"]>[]> {
     return idbReqToPromise(this.#index.getAll(keys));
   }
 
@@ -62,7 +62,7 @@ export class DBIndex<
    *
    * @see {@link IDBIndex.getAllKeys}
    */
-  getAllKeys(keys?: KeyRange<IndexKey<StoreSchema, Name>>): Promise<StoreOutputKey<StoreSchema>[]> {
+  getAllKeys(keys?: KeyRange<IndexKey<StoreSchema, Name>> | null): Promise<StoreOutputKey<StoreSchema>[]> {
     return idbReqToPromise(this.#index.getAllKeys(keys)) as Promise<StoreOutputKey<StoreSchema>[]>;
   }
 
@@ -72,7 +72,7 @@ export class DBIndex<
    * @see {@link IDBIndex.openCursor}
    */
   async openCursor(
-    range?: KeyRange<IndexKey<StoreSchema, Name>>,
+    range?: KeyRange<IndexKey<StoreSchema, Name>> | null,
     direction?: IDBCursorDirection,
   ): Promise<DBCursor<
     SchemaValue<StoreSchema["value"]>,
@@ -88,7 +88,7 @@ export class DBIndex<
    * Returns an iterator over the index.
    */
   async *iterate(
-    range?: KeyRange<IndexKey<StoreSchema, Name>>,
+    range?: KeyRange<IndexKey<StoreSchema, Name>> | null,
     direction?: IDBCursorDirection,
   ): AsyncIterable<
     DBCursor<SchemaValue<StoreSchema["value"]>, IndexKey<StoreSchema, Name>, StoreOutputKey<StoreSchema>>,

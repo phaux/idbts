@@ -846,9 +846,9 @@ test("array key and index", async (t) => {
     const store = tx.store("points");
     expectTypeOf(store.get).parameter(0).toEqualTypeOf<[number, number]>();
     deepEqual(await store.get([1, 2]), value);
-    expectTypeOf(store.getAll).parameter(0).toEqualTypeOf<KeyRange<[number, number]> | undefined>();
+    expectTypeOf(store.getAll).parameter(0).toEqualTypeOf<KeyRange<[number, number]> | null | undefined>();
     deepEqual(await store.getAll(KeyRange.lowerBound([1, -Infinity])), [value]);
-    expectTypeOf(store.getAllKeys).parameter(0).toEqualTypeOf<KeyRange<[number, number]> | undefined>();
+    expectTypeOf(store.getAllKeys).parameter(0).toEqualTypeOf<KeyRange<[number, number]> | null | undefined>();
     deepEqual(await store.getAllKeys(KeyRange.upperBound([1, Infinity])), [[1, 2]]);
     await tx.done;
     expectTypeOf(db.get<"points">)
@@ -857,7 +857,7 @@ test("array key and index", async (t) => {
     deepEqual(await db.get("points", [1, 2]), value);
     expectTypeOf(db.getAll<"points">)
       .parameter(1)
-      .toEqualTypeOf<KeyRange<[number, number]> | undefined>();
+      .toEqualTypeOf<KeyRange<[number, number]> | null | undefined>();
     deepEqual(await db.getAll("points", KeyRange.bound([1, -Infinity], [1, Infinity])), [value]);
   });
 
@@ -867,14 +867,14 @@ test("array key and index", async (t) => {
     const idx = store.index("byLabel");
     expectTypeOf(idx.get).parameter(0).toEqualTypeOf<[string, string]>();
     deepEqual(await idx.get(["foo", "bar"]), value);
-    expectTypeOf(idx.getAll).parameter(0).toEqualTypeOf<KeyRange<[string, string]> | undefined>();
+    expectTypeOf(idx.getAll).parameter(0).toEqualTypeOf<KeyRange<[string, string]> | null | undefined>();
     deepEqual(await idx.getAll(KeyRange.bound(["foo", ""], ["foo", "\uFFFF"])), [value]);
-    expectTypeOf(idx.getAllKeys).parameter(0).toEqualTypeOf<KeyRange<[string, string]> | undefined>();
+    expectTypeOf(idx.getAllKeys).parameter(0).toEqualTypeOf<KeyRange<[string, string]> | null | undefined>();
     deepEqual(await idx.getAllKeys(KeyRange.bound(["a", ""], ["z", "\uFFFF"])), [[1, 2]]);
     await tx.done;
     expectTypeOf(db.getAllBy<"points", "byLabel">)
       .parameter(2)
-      .toEqualTypeOf<KeyRange<[string, string]> | undefined>();
+      .toEqualTypeOf<KeyRange<[string, string]> | null | undefined>();
     deepEqual(await db.getAllBy("points", "byLabel", KeyRange.bound(["foo", ""], ["foo", "\uFFFF"])), [value]);
   });
 
@@ -927,7 +927,7 @@ test("compound key and index", async (t) => {
     await tx.done;
     expectTypeOf(db.getAllBy<"points", "byLabel">)
       .parameter(2)
-      .toEqualTypeOf<KeyRange<readonly [string, string]> | undefined>();
+      .toEqualTypeOf<KeyRange<readonly [string, string]> | null | undefined>();
     deepEqual(await db.getAllBy("points", "byLabel", KeyRange.only(["foo", "bar"])), [value]);
   });
 
@@ -965,7 +965,7 @@ test("multi entry index", async (t) => {
     await tx.done;
     expectTypeOf(db.getAllBy<"posts", "byTag">)
       .parameter(2)
-      .toEqualTypeOf<KeyRange<string> | undefined>();
+      .toEqualTypeOf<KeyRange<string> | null | undefined>();
     deepEqual(await db.getAllBy("posts", "byTag", KeyRange.only("foo")), [value]);
   });
 
@@ -978,7 +978,7 @@ test("multi entry index", async (t) => {
     await tx.done;
     expectTypeOf(db.getAllBy<"posts", "byCategory">)
       .parameter(2)
-      .toEqualTypeOf<KeyRange<number> | undefined>();
+      .toEqualTypeOf<KeyRange<number> | null | undefined>();
     deepEqual(await db.getAllBy("posts", "byCategory", KeyRange.only(1)), [value]);
   });
 
@@ -992,7 +992,7 @@ test("multi entry index", async (t) => {
     await tx.done;
     expectTypeOf(db.getAllBy<"posts", "byPath">)
       .parameter(2)
-      .toEqualTypeOf<KeyRange<string | number> | undefined>();
+      .toEqualTypeOf<KeyRange<string | number> | null | undefined>();
     deepEqual(await db.getAllBy("posts", "byPath", KeyRange.only("bar")), [value]);
   });
 

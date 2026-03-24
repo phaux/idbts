@@ -95,7 +95,7 @@ export class DBStore<const Schema extends AnyStoreSchema> {
     const oldValue = await this.get(key);
     const newValue = updater(oldValue);
     if (newValue != null) {
-      const newKey = await this.put(newValue, this.#store.keyPath ? undefined : (key as any));
+      const newKey = await this.put(newValue, this.#store.keyPath != null ? undefined : (key as any));
       // Delete old entry if key changed.
       if (indexedDB.cmp(key, newKey) !== 0) await this.delete(key);
       return newKey;
@@ -117,7 +117,7 @@ export class DBStore<const Schema extends AnyStoreSchema> {
    *
    * @see {@link IDBObjectStore.getAll}
    */
-  getAll(range?: KeyRange<StoreOutputKey<Schema>>): Promise<SchemaValue<Schema["value"]>[]> {
+  getAll(range?: KeyRange<StoreOutputKey<Schema>> | null): Promise<SchemaValue<Schema["value"]>[]> {
     return idbReqToPromise(this.#store.getAll(range));
   }
 
@@ -126,7 +126,7 @@ export class DBStore<const Schema extends AnyStoreSchema> {
    *
    * @see {@link IDBObjectStore.getAllKeys}
    */
-  getAllKeys(range?: KeyRange<StoreOutputKey<Schema>>): Promise<StoreOutputKey<Schema>[]> {
+  getAllKeys(range?: KeyRange<StoreOutputKey<Schema>> | null): Promise<StoreOutputKey<Schema>[]> {
     return idbReqToPromise(this.#store.getAllKeys(range)) as Promise<StoreOutputKey<Schema>[]>;
   }
 
@@ -136,7 +136,7 @@ export class DBStore<const Schema extends AnyStoreSchema> {
    * @see {@link IDBObjectStore.openCursor}
    */
   async openCursor(
-    range?: KeyRange<StoreOutputKey<Schema>>,
+    range?: KeyRange<StoreOutputKey<Schema>> | null,
     direction?: IDBCursorDirection,
   ): Promise<DBCursor<SchemaValue<Schema["value"]>, StoreOutputKey<Schema>> | null> {
     const cursor = await idbReqToPromise(this.#store.openCursor(range, direction));
@@ -148,7 +148,7 @@ export class DBStore<const Schema extends AnyStoreSchema> {
    * Returns an iterator over the object store.
    */
   async *iterate(
-    range?: KeyRange<StoreOutputKey<Schema>>,
+    range?: KeyRange<StoreOutputKey<Schema>> | null,
     direction?: IDBCursorDirection,
   ): AsyncIterableIterator<DBCursor<SchemaValue<Schema["value"]>, StoreOutputKey<Schema>>, undefined, undefined> {
     let cursor = await this.openCursor(range, direction);

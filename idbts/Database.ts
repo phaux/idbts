@@ -109,7 +109,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
    */
   getAll<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    range?: KeyRange<StoreOutputKey<Schema[StoreName]>>,
+    range?: KeyRange<StoreOutputKey<Schema[StoreName]>> | null,
   ): Promise<SchemaValue<Schema[StoreName]["value"]>[]> {
     return this.tx([storeName])
       .store()
@@ -127,7 +127,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   >(
     storeName: StoreName,
     indexName: IndexName,
-    range?: KeyRange<IndexKey<Schema[StoreName], IndexName>>,
+    range?: KeyRange<IndexKey<Schema[StoreName], IndexName>> | null,
   ): Promise<SchemaValue<Schema[StoreName]["value"]>[]> {
     return this.tx([storeName])
       .store()
@@ -167,7 +167,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
    */
   watchAll<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    range?: KeyRange<StoreOutputKey<Schema[StoreName]>>,
+    range?: KeyRange<StoreOutputKey<Schema[StoreName]>> | null,
   ): Observable<SchemaValue<Schema[StoreName]["value"]>[]> {
     const O = (globalThis as any).Observable as typeof Observable;
     return new O((subscriber) => {
@@ -198,7 +198,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   >(
     storeName: StoreName,
     indexName: IndexName,
-    range?: KeyRange<IndexKey<Schema[StoreName], IndexName>>,
+    range?: KeyRange<IndexKey<Schema[StoreName], IndexName>> | null,
   ): Observable<SchemaValue<Schema[StoreName]["value"]>[]> {
     const O = (globalThis as any).Observable as typeof Observable;
     return new O((subscriber) => {
