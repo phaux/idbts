@@ -1,123 +1,160 @@
-import type { DBIndex, IndexKey } from "./DBIndex.ts";
-import type { AnyStoreSchema, ReadonlyDBStore, StoreOutputKey } from "./DBStore.ts";
-import type { KeyRange, ValidKey } from "./KeyRange.ts";
+import type { DBIndex } from "./DBIndex.ts";
+import type { AnyStoreSchema, ReadonlyDBStore } from "./DBStore.ts";
+import { arrayifyRange, isSingleValueRange, KeyRange, type ValidKey } from "./KeyRange.ts";
+import { multiDimensionalQuery } from "./multiDimensionalQuery.ts";
+import { simpleQuery } from "./simpleQuery.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
-import { zigZagJoin } from "./zigZagJoin.ts";
+import type { AnyPath } from "./ValuesAtPaths.ts";
+import { zigZagQuery } from "./zigZagQuery.ts";
+
+export const primaryKey = Symbol("primaryKey");
 
 export async function query<const Schema extends AnyStoreSchema>(
   store: ReadonlyDBStore<Schema>,
-  params: QueryParams<Schema>,
+  options: QueryOptions<Schema>,
 ): Promise<SchemaValue<Schema["value"]>[]> {
-  const queryFn = planQuery(store, params);
+  const queryFn = planQuery(store, options);
   return queryFn();
 }
 
-function planQuery(store: ReadonlyDBStore<any>, params: QueryParams<any>): () => Promise<any[]> {
-  const { by, range, where = [] } = params;
+function planQuery(store: ReadonlyDBStore<any>, options: QueryOptions<any>): () => Promise<any[]> {
+  const { where = {}, orderBy, direction, limit = Infinity, offset = 0 } = options;
 
-  if (by == null) {
-    // Null order implies order by primary key.
+  const keyRange = where[primaryKey];
+  const filters = Object.entries(where);
+  const rangeFilters = objectEntries(where).filter(([_path, range]) => !isSingleValueRange(range));
 
-    if (where.length === 0) {
-      return () => store.getAll(range);
+  if (keyRange) {
+    if (orderBy != null) {
+      throw new Error("Primary key filter cannot use sorting.");
     }
 
-    // Find index for every where clause
-    const filters = where.map(([path, op, key]) => [findIndex(store, path).raw.name, key] as const);
+    if (isSingleValueRange(keyRange)) {
+      // Get by single primary key
+      if (filters.length > 0) {
+        throw new Error("Primary key equality filter cannot be combined with other filters.");
+      }
+      return async () => {
+        const result = await store.get(keyRange.lower);
+        return (result != null ? [result] : []).slice(offset, offset + limit);
+      };
+    }
 
-    return () => Array.fromAsync(zigZagJoin(store, filters, null));
+    if (rangeFilters.length > 0) {
+      throw new Error("Primary key range filter cannot be combined with other range filters.");
+    }
+
+    return () => Array.fromAsync(simpleQuery(store, keyRange, { direction, limit, offset }));
   }
 
-  // Order by some index
-
-  if (where.length === 0) {
+  if (filters.length === 1 || (filters.length === 0 && orderBy != null && !isArray(orderBy))) {
+    // Single range/order field can use simple query
+    const filter = filters[0];
+    if (filter && orderBy != null && filter[0] !== orderBy) {
+      throw new Error("Sorting field must match filter field.");
+    }
+    const field = filter?.[0] ?? orderBy!;
+    const range = filter?.[1];
     // Find index for sorting
-    const index = findIndex(store, by);
-    return () => index.getAll(range);
+    const index = findIndexExact(store, field);
+    return () => Array.fromAsync(simpleQuery(index, range, { direction, limit, offset }));
   }
 
-  // Both order and filters are specified.
-  // Every index for where clause must also end with the field for ordering.
-  const filters = where.map(([path, op, key]) => [findIndex(store, [path, by].flat(1)).raw.name, key] as const);
+  const eqFilters = filters
+    .filter(([_path, range]) => isSingleValueRange(range))
+    .map(([path, range]) => [path, range.lower!] as const);
+  if (eqFilters.length > 0) {
+    // Equality filters require zig zag query
 
-  return () => Array.fromAsync(zigZagJoin(store, filters, range));
+    if (rangeFilters.length > 1) {
+      throw new Error("Equality filters cannot be combined with multiple range filters.");
+    }
+    const rangeFilter = rangeFilters[0];
+
+    if (offset > 0) {
+      throw new Error("Equality filters cannot use offset.");
+    }
+
+    const sortField = rangeFilter?.[0] ?? orderBy;
+    if (sortField != null && !eqFilters.some(([path]) => path === sortField)) {
+      // Zig zag query with custom sort
+      if (orderBy != null && orderBy !== sortField) {
+        throw new Error("Sorting field must match filter field.");
+      }
+      const range = rangeFilter?.[1];
+      // Every filter index must also end with the field for ordering.
+      const zigZagFilters = eqFilters.map(
+        ([path, key]) => [findIndexExact(store, [path, sortField].flat(1)).raw.name, [key]] as const,
+      );
+      return () =>
+        Array.fromAsync(
+          zigZagQuery(store, zigZagFilters, { suffixRange: range && arrayifyRange(range), direction, limit }),
+        );
+    }
+
+    // Zig zag query with default sort by primary key
+    const zigZagFilters = eqFilters.map(([path, key]) => [findIndexExact(store, path).raw.name, key] as const);
+    return () =>
+      Array.fromAsync(
+        zigZagQuery(store, zigZagFilters, { keyRange: keyRange && arrayifyRange(keyRange), direction, limit }),
+      );
+  }
+
+  if (orderBy != null && isArray(orderBy)) {
+    // Order by multiple fields requires multi-dimensional query
+    for (const [path] of filters) {
+      if (!orderBy.includes(path)) {
+        throw new Error("Compound field sorting can only filter by the sorted fields.");
+      }
+    }
+    const index = findIndexExact(store, orderBy);
+    const ranges = (index.raw.keyPath as string[]).map((path) => rangeFilters.find(([p]) => p === path)?.[1]);
+    return () => Array.fromAsync(multiDimensionalQuery(index, ranges, { keyRange, direction, limit }));
+  }
+
+  if (rangeFilters.length > 1) {
+    // Multiple range filters require multi-dimensional query
+    const index = findIndex(
+      store,
+      rangeFilters.map(([path]) => path),
+    );
+    const ranges = (index.raw.keyPath as string[]).map((path) => rangeFilters.find(([p]) => p === path)![1]);
+    return () => Array.fromAsync(multiDimensionalQuery(index, ranges, { direction, limit }));
+  }
+
+  if (offset > 0 || Number.isFinite(limit) || direction != null) {
+    return () => Array.fromAsync(simpleQuery(store, null, { direction, limit, offset }));
+  }
+
+  return () => store.getAll();
 }
 
-function findIndex(store: ReadonlyDBStore<any>, path: AnyPath): DBIndex<any, any> {
+function findIndexExact(store: ReadonlyDBStore<any>, path: AnyPath): DBIndex<any, any> {
   const indexNames = Array.from(store.raw.indexNames);
   const indexName = indexNames.find((name) => indexedDB.cmp(store.raw.index(name).keyPath, path) === 0);
-  if (indexName == null) throw new Error(`Index for path ${JSON.stringify(path)} not found.`);
+  if (indexName == null) throw new Error(`Index for ${JSON.stringify(path)} not found.`);
   return store.index(indexName);
 }
 
-export type QueryParams<Schema extends AnyStoreSchema> =
-  | QueryParam<
-      undefined,
-      StoreOutputKey<Schema>,
-      Schema["indexes"] extends {}
-        ? {
-            [I in keyof Schema["indexes"] & string]: QueryFilter<Schema["indexes"][I]["keyPath"], IndexKey<Schema, I>>;
-          }[keyof Schema["indexes"] & string]
-        : never
-    >
-  | (Schema["indexes"] extends {}
-      ? {
-          [I in keyof Schema["indexes"] & string]: QueryParam<
-            Schema["indexes"][I]["keyPath"],
-            IndexKey<Schema, I>,
-            never
-          >;
-        }[keyof Schema["indexes"] & string]
-      : never);
+function findIndex(store: ReadonlyDBStore<any>, paths: readonly string[]): DBIndex<any, any> {
+  const indexNames = Array.from(store.raw.indexNames);
+  const indexName = indexNames.find((name) => {
+    const idx = store.raw.index(name);
+    if (!Array.isArray(idx.keyPath)) return false;
+    return paths.every((path) => idx.keyPath.includes(path));
+  });
+  if (indexName == null) throw new Error(`Index with ${JSON.stringify(paths)} not found.`);
+  return store.index(indexName);
+}
 
-export type QueryParam<
-  out Order extends AnyPath | undefined,
-  out Key extends ValidKey,
-  out Filter extends AnyFilter,
-> = {
-  readonly by: Order;
-  readonly range?: KeyRange<Key>;
-  readonly where?: readonly Filter[];
+export type QueryOptions<Schema extends AnyStoreSchema> = {
+  readonly where?: Readonly<Record<string | symbol, KeyRange<ValidKey>>> | undefined;
+  readonly orderBy?: string | readonly string[] | undefined;
+  readonly direction?: "next" | "prev" | undefined;
+  readonly offset?: number | undefined;
+  readonly limit?: number | undefined;
 };
 
-export type AnyFilter = QueryFilter<AnyPath, ValidKey>;
+const objectEntries = Object.entries as <T extends object>(obj: T) => [keyof T & string, T[keyof T]][];
 
-export type QueryFilter<Path extends AnyPath, Key extends ValidKey> = readonly [Path, QueryOp, Key];
-
-export type AnyPath = string | readonly string[];
-
-export type QueryOp = "eq";
-
-export type AnySuffix<T> = T extends readonly [unknown, ...infer Rest] ? T | AnySuffix<readonly [...Rest]> : T;
-
-// export interface QueryParams<Schema extends AnyStoreSchema> {
-//   orderBy?: Schema["indexes"] extends NonNullable<unknown>
-//     ?
-//         | {
-//             [I in keyof Schema["indexes"] & string]: AnySuffix<Schema["indexes"][I]["keyPath"]>;
-//           }[keyof Schema["indexes"] & string]
-//         | undefined
-//     : undefined;
-//   where?:
-//     | ReadonlyArray<
-//         | (Schema["indexes"] extends NonNullable<unknown>
-//             ? {
-//                 [I in keyof Schema["indexes"] & string]: QueryWhereClause<Schema, Schema["indexes"][I]>;
-//               }[keyof Schema["indexes"] & string]
-//             : never)
-//         | readonly ["$key", QueryOp, StoreOutputKey<Schema>]
-//       >
-//     | undefined;
-// }
-
-// export type QueryWhereClause<StoreSchema extends AnyStoreSchema, IndexSchema extends AnyIndexSchema> = {
-//   [KP in FlatArray<IndexSchema["keyPath"], 1>]: readonly [
-//     KP,
-//     QueryOp,
-//     ValuesAtPaths<SchemaValue<StoreSchema["value"]>, IndexSchema["keyPath"]> extends infer Key extends ValidKey
-//       ? IndexSchema["multiEntry"] extends true
-//         ? FlatArray<Key, 1>
-//         : Key
-//       : never,
-//   ];
-// }[FlatArray<IndexSchema["keyPath"], 1>];
+const isArray = Array.isArray as <T>(value: any) => value is readonly T[];

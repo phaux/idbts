@@ -4,7 +4,7 @@ import { expectTypeOf } from "expect-type";
 import { deepEqual, rejects } from "node:assert/strict";
 import { test } from "node:test";
 import { KeyRange, openDB, schema, type AnyStoreSchema, type DatabaseSchemaOf } from "./index.ts";
-import { zigZagJoin } from "./zigZagJoin.ts";
+import { zigZagQuery } from "./zigZagQuery.ts";
 
 let dbId = 0;
 
@@ -48,20 +48,20 @@ test("zigZagJoin", async (t) => {
       },
     );
 
-    expectTypeOf(zigZagJoin<DatabaseSchemaOf<typeof db>["items"]>)
+    expectTypeOf(zigZagQuery<DatabaseSchemaOf<typeof db>["items"]>)
       .parameter(1)
       .toEqualTypeOf<ReadonlyArray<readonly ["byX", number] | readonly ["byY", number]>>();
 
     await t.test("rejects if no filters", async (t) => {
       const tx = db.tx("items", "readonly");
-      await rejects(() => Array.fromAsync(zigZagJoin(tx.store("items"), [])));
+      await rejects(() => Array.fromAsync(zigZagQuery(tx.store("items"), [])));
       await tx.done;
     });
 
     await t.test("returns empty array when no matches", async (t) => {
       const tx = db.tx("items", "readonly");
       const results = await Array.fromAsync(
-        zigZagJoin(tx.store("items"), [
+        zigZagQuery(tx.store("items"), [
           ["byX", 123],
           ["byY", 321],
         ]),
@@ -72,7 +72,7 @@ test("zigZagJoin", async (t) => {
 
     await t.test("works with 1 filter", async () => {
       const tx = db.tx("items", "readonly");
-      const results = await Array.fromAsync(zigZagJoin(tx.store("items"), [["byX", 1]]));
+      const results = await Array.fromAsync(zigZagQuery(tx.store("items"), [["byX", 1]]));
       await tx.done;
       deepEqual(results, [
         { id: 2, x: 1, y: 0 },
@@ -84,7 +84,7 @@ test("zigZagJoin", async (t) => {
     await t.test("works with 2 filters - 1 result", async () => {
       const tx = db.tx("items", "readonly");
       const results = await Array.fromAsync(
-        zigZagJoin(tx.store("items"), [
+        zigZagQuery(tx.store("items"), [
           ["byX", 1],
           ["byY", 1],
         ]),
@@ -96,7 +96,7 @@ test("zigZagJoin", async (t) => {
     await t.test("works with 2 filters - multiple results", async () => {
       const tx = db.tx("items", "readonly");
       const results = await Array.fromAsync(
-        zigZagJoin(tx.store("items"), [
+        zigZagQuery(tx.store("items"), [
           ["byX", 1],
           ["byY", 0],
         ]),
@@ -111,14 +111,13 @@ test("zigZagJoin", async (t) => {
     await t.test("works with 2 filters reversed", async () => {
       const tx = db.tx("items", "readonly");
       const results = await Array.fromAsync(
-        zigZagJoin(
+        zigZagQuery(
           tx.store("items"),
           [
             ["byX", 1],
             ["byY", 0],
           ],
-          null,
-          "prev",
+          { direction: "prev" },
         ),
       );
       await tx.done;
@@ -147,7 +146,7 @@ test("zigZagJoin", async (t) => {
       },
     );
 
-    expectTypeOf(zigZagJoin<DatabaseSchemaOf<typeof db>["items"]>)
+    expectTypeOf(zigZagQuery<DatabaseSchemaOf<typeof db>["items"]>)
       .parameter(1)
       .toEqualTypeOf<
         ReadonlyArray<
@@ -158,7 +157,7 @@ test("zigZagJoin", async (t) => {
 
     await t.test("works with 1 filter", async () => {
       const tx = db.tx("items", "readonly");
-      const results = await Array.fromAsync(zigZagJoin(tx.store("items"), [["byTitleAndTime", ["bar"]]]));
+      const results = await Array.fromAsync(zigZagQuery(tx.store("items"), [["byTitleAndTime", ["bar"]]]));
       await tx.done;
       deepEqual(results, [
         { id: 8, timestamp: 1_490, tag: "wtf", title: "bar" },
@@ -172,7 +171,9 @@ test("zigZagJoin", async (t) => {
     await t.test("works with 1 filter and range", async () => {
       const tx = db.tx("items", "readonly");
       const results = await Array.fromAsync(
-        zigZagJoin(tx.store("items"), [["byTitleAndTime", ["bar"]]], KeyRange.upperBound([1_520], true)),
+        zigZagQuery(tx.store("items"), [["byTitleAndTime", ["bar"]]], {
+          suffixRange: KeyRange.upperBound([1_520], true),
+        }),
       );
       await tx.done;
       deepEqual(results, [
@@ -184,7 +185,7 @@ test("zigZagJoin", async (t) => {
     await t.test("works with 2 filters", async () => {
       const tx = db.tx("items", "readonly");
       const results = await Array.fromAsync(
-        zigZagJoin(tx.store("items"), [
+        zigZagQuery(tx.store("items"), [
           ["byTagAndTime", ["foo"]],
           ["byTitleAndTime", ["bar"]],
         ]),
@@ -201,14 +202,13 @@ test("zigZagJoin", async (t) => {
     await t.test("works with 2 filters reversed", async () => {
       const tx = db.tx("items", "readonly");
       const results = await Array.fromAsync(
-        zigZagJoin(
+        zigZagQuery(
           tx.store("items"),
           [
             ["byTagAndTime", ["foo"]],
             ["byTitleAndTime", ["bar"]],
           ],
-          null,
-          "prev",
+          { direction: "prev" },
         ),
       );
       await tx.done;
@@ -223,13 +223,13 @@ test("zigZagJoin", async (t) => {
     await t.test("works with 2 filters and range", async () => {
       const tx = db.tx("items", "readonly");
       const results = await Array.fromAsync(
-        zigZagJoin(
+        zigZagQuery(
           tx.store("items"),
           [
             ["byTagAndTime", ["foo"]],
             ["byTitleAndTime", ["bar"]],
           ],
-          KeyRange.lowerBound([1_520]),
+          { suffixRange: KeyRange.lowerBound([1_520]) },
         ),
       );
       await tx.done;
@@ -243,14 +243,13 @@ test("zigZagJoin", async (t) => {
     await t.test("works with 2 filters and range reversed", async () => {
       const tx = db.tx("items", "readonly");
       const results = await Array.fromAsync(
-        zigZagJoin(
+        zigZagQuery(
           tx.store("items"),
           [
             ["byTagAndTime", ["foo"]],
             ["byTitleAndTime", ["bar"]],
           ],
-          KeyRange.lowerBound([1_520]),
-          "prev",
+          { suffixRange: KeyRange.lowerBound([1_520]), direction: "prev" },
         ),
       );
       await tx.done;

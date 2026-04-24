@@ -57,3 +57,52 @@ export interface KeyRange<out T extends ValidKey> extends IDBKeyRange {
  * Either a single {@link ValidKey} or a {@link KeyRange}.
  */
 export type MaybeKeyRange<T extends ValidKey> = T | KeyRange<T>;
+
+/** Returns the maximum possible key value, which is greater than all other keys. */
+export const getMaxKey = () => [[]] as const;
+
+/** The minimum possible key value, which is less than all other keys. */
+export const minKey = -Infinity;
+
+/**
+ * Converts a KeyRange into a KeyRange with array bounds.
+ * If the range bounds are not already arrays, they are wrapped in single-element arrays.
+ *
+ * @example
+ * // Converts scalar bounds to array bounds
+ * const result = arrayifyRange(KeyRange.bound("a", "z"));
+ * // Returns: KeyRange.bound(['a'], ['z'])
+ */
+export function arrayifyRange<T extends ValidKey>(
+  range: KeyRange<T>,
+): KeyRange<T extends readonly unknown[] ? T : readonly T[]> {
+  if (range.lower != null && range.upper != null) {
+    return KeyRange.bound(
+      Array.isArray(range.lower) ? range.lower : ([range.lower] as any),
+      Array.isArray(range.upper) ? range.upper : ([range.upper] as any),
+      range.lowerOpen,
+      range.upperOpen,
+    );
+  }
+  if (range.lower != null) {
+    return KeyRange.lowerBound(Array.isArray(range.lower) ? range.lower : ([range.lower] as any), range.lowerOpen);
+  }
+  if (range.upper != null) {
+    return KeyRange.upperBound(Array.isArray(range.upper) ? range.upper : ([range.upper] as any), range.upperOpen);
+  }
+  throw new Error("Invalid range");
+}
+
+/**
+ * Returns true if the given range represents a single value
+ * (i.e. lower and upper bounds are equal and not open).
+ */
+export function isSingleValueRange(range: IDBKeyRange) {
+  return (
+    range.lower != null &&
+    range.upper != null &&
+    indexedDB.cmp(range.lower, range.upper) === 0 &&
+    !range.lowerOpen &&
+    !range.upperOpen
+  );
+}

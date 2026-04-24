@@ -10,10 +10,8 @@ import type { ValidKey } from "./KeyRange.ts";
  * type A = ValuesAtPaths<{ a: { b: number } }, ["a.b"]> // number
  * ```
  */
-export type ValuesAtPaths<
-  Value,
-  Paths extends string | readonly string[] | null | undefined,
-> = Paths extends infer P extends readonly string[]
+export type ValuesAtPaths<Value, Paths extends AnyPath | null | undefined> = Paths extends infer P extends
+  readonly string[]
   ? {
       [I in keyof P]: Extract<ValueAtPath<Value, P[I]>, ValidKey>;
     }
@@ -40,3 +38,5 @@ export type ValueAtPath<Value, Path extends string> = Value extends {}
         ? Value[Path]
         : never
   : never;
+
+export type AnyPath = string | readonly string[];

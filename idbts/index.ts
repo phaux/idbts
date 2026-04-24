@@ -79,10 +79,10 @@ export function openDB<const T extends AnyDatabaseSchema>(
           const indexSchemas = storeSchema.indexes ?? {};
           for (const [name, indexSchema] of Object.entries(indexSchemas)) {
             const { keyPath, ...params } = indexSchema;
-              if (!store.indexNames.contains(name)) {
-                store.createIndex(name, keyPath as string | string[], params);
-              }
+            if (!store.indexNames.contains(name)) {
+              store.createIndex(name, keyPath as string | string[], params);
             }
+          }
           // Delete old indexes.
           for (const indexName of Array.from(store.indexNames)) {
             if (!Object.hasOwn(indexSchemas, indexName)) {
@@ -112,4 +112,5 @@ export * from "./DBIndex.ts";
 export * from "./DBStore.ts";
 export * from "./DBTransaction.ts";
 export * from "./KeyRange.ts";
+export * from "./query.ts";
 export * from "./StandardSchema.ts";

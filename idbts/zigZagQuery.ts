@@ -4,6 +4,13 @@ import type { AnyStoreSchema, ReadonlyDBStore } from "./DBStore.ts";
 import { KeyRange, type ValidKey } from "./KeyRange.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
 
+export interface ZigZagQueryOptions {
+  limit?: number | undefined;
+  direction?: "next" | "prev" | undefined;
+  suffixRange?: KeyRange<readonly ValidKey[]> | undefined;
+  keyRange?: KeyRange<ValidKey> | undefined;
+}
+
 /**
  * Performs a zig-zag merge join algorithm to query the given database.
  * Returns an iterator over store items filtered by given index-value pairs.
@@ -11,7 +18,7 @@ import type { SchemaValue } from "./StandardSchema.ts";
  * Example:
  *
  * ```js
- * const results = await Array.fromAsync(zigZagJoin(store, [
+ * const results = await Array.fromAsync(zigZagQuery(store, [
  *   ["byUser", "kazik"],
  *   ["byTag", "photography"],
  * ]));
@@ -31,7 +38,7 @@ import type { SchemaValue } from "./StandardSchema.ts";
  * Example:
  *
  * ```js
- * const results = await Array.fromAsync(zigZagJoin(store, [
+ * const results = await Array.fromAsync(zigZagQuery(store, [
  *   // only first values of the compound indexes are provided
  *   // (date is omitted and will be only used for sorting)
  *   ["byUserAndDate", ["kazik"]],
@@ -41,39 +48,40 @@ import type { SchemaValue } from "./StandardSchema.ts";
  *
  * This will turn the filter values into ranges automatically.
  * It's important to make sure that the omitted value is the same field in every filter condition.
- * You can limit the range further by providing the third argument.
+ * You can limit the range further by providing a suffix range.
  *
  * Example:
  *
  * ```js
  * const results = await Array.fromAsync(
- *   zigZagJoin(
+ *   zigZagQuery(
  *     store,
  *     [
  *       ["byUserAndDate", ["kazik"]],
  *       ["byTagAndDate", ["photography"]],
  *     ],
- *     KeyRange.upperBound([Date.now()]),
+ *     { suffixRange: KeyRange.upperBound([Date.now()]) },
  *   ),
  * );
  * ```
  */
-export async function* zigZagJoin<Schema extends AnyStoreSchema>(
+export async function* zigZagQuery<Schema extends AnyStoreSchema>(
   store: ReadonlyDBStore<Schema>,
   filters: StoreFilters<Schema>,
-  range?: KeyRange<readonly ValidKey[]> | null | undefined,
-  direction?: "next" | "prev",
+  options: ZigZagQueryOptions = {},
 ): AsyncIterableIterator<SchemaValue<Schema["value"]>, undefined, undefined> {
+  const { keyRange, suffixRange, direction, limit = Infinity } = options;
   if (filters.length === 0) {
     throw new Error("No filters provided");
   }
 
   // Create a cursor for every filter.
   let cursors = await Promise.all(
-    filters.map(([indexName, value]) => PrefixCursor.init(store.index(indexName), value, range, direction)),
+    filters.map(([indexName, value]) => PrefixCursor.init(store.index(indexName), value, suffixRange, direction)),
   );
 
-  while (true) {
+  let i = 0;
+  while (i < limit) {
     // If any cursor is null, we've reached the end.
     if (!cursors.every((cursor) => cursor != null)) break;
     // All cursors are pointing to some item.
@@ -91,6 +99,7 @@ export async function* zigZagJoin<Schema extends AnyStoreSchema>(
     if (cursors.every((cursor) => indexedDB.cmp(cursor.postfix, furthestPostfix) === 0)) {
       // If so, we found a match.
       yield cursors[0]!.cursor.value;
+      i++;
       // Move all cursors to their next item and repeat.
       cursors = await Promise.all(cursors.map((cursor) => cursor.continue()));
       continue;
@@ -137,7 +146,7 @@ class PrefixCursor<T> {
   ) {
     // Treat an array value as a prefix.
     // This will select all compound values starting with the prefix.
-    const fullRange = Array.isArray(value) ? concatRange(value, range) : KeyRange.only(value);
+    const fullRange = range || Array.isArray(value) ? concatRange([value].flat(1), range) : KeyRange.only(value);
     const cursor = await index.openCursor(fullRange as any, direction);
     if (cursor == null) return null;
     return new PrefixCursor(value, cursor);
@@ -186,7 +195,7 @@ class PrefixCursor<T> {
 /**
  * Given a prefix and a range, returns a new range that combines them.
  *
- * For example, given prefix `["a"]` and range `[1, 3]`, returns range from `["a", 1]` to `["a", 3]`.
+ * For example, given prefix `["a"]` and range from `[1]` to `[3]`, returns range from `["a", 1]` to `["a", 3]`.
  *
  * If range is null, returns range which includes all keys with the given prefix.
  */
