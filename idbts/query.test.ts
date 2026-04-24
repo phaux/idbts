@@ -433,7 +433,7 @@ test("simple store query", async (t) => {
           query(tx.store("items"), {
             where: { age: KeyRange.only(30) },
           }),
-        { message: 'Index for "age" not found.' },
+        { message: "Index for age not found." },
       );
       await tx.done;
     });
@@ -631,7 +631,7 @@ test("simple store query", async (t) => {
               age: KeyRange.only(35),
             },
           }),
-        { message: 'Index for "age" not found.' },
+        { message: "Index for age not found." },
       );
       await tx.done;
     });
@@ -688,7 +688,7 @@ test("simple store query", async (t) => {
             },
             orderBy: "age",
           }),
-        { message: 'Index for ["name.first","age"] not found.' },
+        { message: "Index for name.first and age not found." },
       );
       await tx.done;
     });
@@ -841,7 +841,7 @@ test("simple store query", async (t) => {
               age: KeyRange.bound(0, 100),
             },
           }),
-        { message: 'Index for ["name.last","age"] not found.' },
+        { message: "Index for name.last and age not found." },
       );
       rejects(
         () =>
@@ -852,7 +852,7 @@ test("simple store query", async (t) => {
               age: KeyRange.lowerBound(0),
             },
           }),
-        { message: 'Index for ["name.first","age"] not found.' },
+        { message: "Index for name.first and age not found." },
       );
       await tx.done;
     });
@@ -1037,7 +1037,7 @@ test("simple store query", async (t) => {
             },
             orderBy: ["name.first", "age"],
           }),
-        { message: 'Index for ["name.first","age"] not found.' },
+        { message: "Index for name.first and age not found." },
       );
       rejects(
         () =>
@@ -1048,7 +1048,7 @@ test("simple store query", async (t) => {
               points: KeyRange.bound(1000, 2000),
             },
           }),
-        { message: 'Index with ["name.first","name.last","points"] not found.' },
+        { message: "Index with name.first, name.last, and points not found." },
       );
       await tx.done;
     });

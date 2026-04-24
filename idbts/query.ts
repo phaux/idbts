@@ -129,10 +129,12 @@ function planQuery(store: ReadonlyDBStore<any>, options: QueryOptions<any>): () 
   return () => store.getAll();
 }
 
+const listFmt = new Intl.ListFormat("en");
+
 function findIndexExact(store: ReadonlyDBStore<any>, path: AnyPath): DBIndex<any, any> {
   const indexNames = Array.from(store.raw.indexNames);
   const indexName = indexNames.find((name) => indexedDB.cmp(store.raw.index(name).keyPath, path) === 0);
-  if (indexName == null) throw new Error(`Index for ${JSON.stringify(path)} not found.`);
+  if (indexName == null) throw new Error(`Index for ${listFmt.format(toArray(path))} not found.`);
   return store.index(indexName);
 }
 
@@ -143,7 +145,7 @@ function findIndex(store: ReadonlyDBStore<any>, paths: readonly string[]): DBInd
     if (!Array.isArray(idx.keyPath)) return false;
     return paths.every((path) => idx.keyPath.includes(path));
   });
-  if (indexName == null) throw new Error(`Index with ${JSON.stringify(paths)} not found.`);
+  if (indexName == null) throw new Error(`Index with ${listFmt.format(paths)} not found.`);
   return store.index(indexName);
 }
 
@@ -158,3 +160,5 @@ export type QueryOptions<Schema extends AnyStoreSchema> = {
 const objectEntries = Object.entries as <T extends object>(obj: T) => [keyof T & string, T[keyof T]][];
 
 const isArray = Array.isArray as <T>(value: any) => value is readonly T[];
+
+const toArray = <T>(value: T | readonly T[]): readonly T[] => (isArray(value) ? value : [value]);
