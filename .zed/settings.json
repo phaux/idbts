@@ -1,0 +1,6 @@
+{
+  "code_actions_on_format": {
+    "source.organizeImports": true,
+  },
+  "tab_size": 2,
+}
