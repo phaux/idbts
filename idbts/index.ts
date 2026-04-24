@@ -76,15 +76,19 @@ export function openDB<const T extends AnyDatabaseSchema>(
             ? tx.objectStore(storeName)
             : db.createObjectStore(storeName, storeSchema);
           // Create new indexes.
-          if (storeSchema.indexes) {
-            for (const indexSchema of Object.entries(storeSchema.indexes)) {
-              const [name, { keyPath, ...params }] = indexSchema;
+          const indexSchemas = storeSchema.indexes ?? {};
+          for (const [name, indexSchema] of Object.entries(indexSchemas)) {
+            const { keyPath, ...params } = indexSchema;
               if (!store.indexNames.contains(name)) {
                 store.createIndex(name, keyPath as string | string[], params);
               }
             }
+          // Delete old indexes.
+          for (const indexName of Array.from(store.indexNames)) {
+            if (!Object.hasOwn(indexSchemas, indexName)) {
+              store.deleteIndex(indexName);
+            }
           }
-          // TODO: delete old indexes.
         }
         // Delete old stores.
         for (const storeName of Array.from(tx.objectStoreNames)) {

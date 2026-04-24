@@ -23,6 +23,8 @@ function whenMockCalled<Args extends unknown[], Ret>(fn: Mock<(...args: Args) =>
 }
 
 test("database lifecycle", async (t) => {
+  type NumData = { a: number; b: number };
+
   await t.test("creates database with 1 store", async (t) => {
     const onUpgradeNeeded = t.mock.fn<NonNullable<IDBOpenDBRequest["onupgradeneeded"]>>();
     const db = await openDB("test-db", 1, { strs: { value: schema<string>() } }, { onUpgradeNeeded });
@@ -46,29 +48,69 @@ test("database lifecycle", async (t) => {
     const db = await openDB(
       "test-db",
       2,
-      { strs: { value: schema<string>() }, nums: { value: schema<number>() } },
+      {
+        strs: { value: schema<string>() },
+        nums: { value: schema<NumData>(), indexes: { byA: { keyPath: "a" } } },
+      },
       { onUpgradeNeeded },
     );
     deepEqual(new Set(Array.from(db.storeNames)), new Set(["strs", "nums"]));
+    const tx = db.tx("nums", "readonly");
+    const numStore = tx.store("nums");
+    deepEqual(Array.from(numStore.raw.indexNames), ["byA"]);
+    await tx.done;
     db.close();
     deepEqual(onUpgradeNeeded.mock.calls.length, 1);
     deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.oldVersion, 1);
     deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.newVersion, 2);
   });
 
-  await t.test("upgrade deletes stores", async (t) => {
+  await t.test("upgrade adds indexes", async (t) => {
     const onUpgradeNeeded = t.mock.fn<NonNullable<IDBOpenDBRequest["onupgradeneeded"]>>();
-    const db = await openDB("test-db", 3, { nums: { value: schema<number>() } }, { onUpgradeNeeded });
-    deepEqual(Array.from(db.storeNames), ["nums"]);
+    const db = await openDB(
+      "test-db",
+      3,
+      {
+        strs: { value: schema<string>() },
+        nums: { value: schema<NumData>(), indexes: { byA: { keyPath: "a" }, byB: { keyPath: "b" } } },
+      },
+      { onUpgradeNeeded },
+    );
+    {
+      const tx = db.tx("nums", "readonly");
+      const numStore = tx.store("nums");
+      deepEqual(new Set(Array.from(numStore.raw.indexNames)), new Set(["byA", "byB"]));
+      await tx.done;
+    }
     db.close();
     deepEqual(onUpgradeNeeded.mock.calls.length, 1);
     deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.oldVersion, 2);
     deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.newVersion, 3);
   });
 
+  await t.test("upgrade deletes indexes", async (t) => {
+    const db = await openDB("test-db", 4, {
+      strs: { value: schema<string>() },
+      nums: { value: schema<NumData>(), indexes: { byB: { keyPath: "b" } } },
+    });
+    {
+      const tx = db.tx("nums", "readonly");
+      const numStore = tx.store("nums");
+      deepEqual(Array.from(numStore.raw.indexNames), ["byB"]);
+      await tx.done;
+    }
+    db.close();
+  });
+
+  await t.test("upgrade deletes stores", async (t) => {
+    const db = await openDB("test-db", 5, { nums: { value: schema<NumData>() } });
+    deepEqual(Array.from(db.storeNames), ["nums"]);
+    db.close();
+  });
+
   await t.test("downgrade errors", async (t) => {
     const onUpgradeNeeded = t.mock.fn();
-    await rejects(openDB("test-db", 2, { strs: { value: schema<string>() } }, { onUpgradeNeeded }));
+    await rejects(openDB("test-db", 3, { strs: { value: schema<string>() } }, { onUpgradeNeeded }));
     deepEqual(onUpgradeNeeded.mock.calls.length, 0);
   });
 });
