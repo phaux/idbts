@@ -1,9 +1,8 @@
 import "fake-indexeddb/auto";
 
-import { expectTypeOf } from "expect-type";
 import { deepEqual, rejects } from "node:assert/strict";
 import { test } from "node:test";
-import { KeyRange, openDB, schema, type AnyStoreSchema, type DatabaseSchemaOf } from "./index.ts";
+import { KeyRange, openDB, schema, type AnyStoreSchema } from "./index.ts";
 import { zigZagQuery } from "./zigZagQuery.ts";
 
 let dbId = 0;
@@ -48,13 +47,11 @@ test("zigZagJoin", async (t) => {
       },
     );
 
-    expectTypeOf(zigZagQuery<DatabaseSchemaOf<typeof db>["items"]>)
-      .parameter(1)
-      .toEqualTypeOf<ReadonlyArray<readonly ["byX", number] | readonly ["byY", number]>>();
-
     await t.test("rejects if no filters", async (t) => {
       const tx = db.tx("items", "readonly");
-      await rejects(() => Array.fromAsync(zigZagQuery(tx.store("items"), [])));
+      await rejects(() => Array.fromAsync(zigZagQuery(tx.store("items"), [])), {
+        message: "Reduce of empty array with no initial value",
+      });
       await tx.done;
     });
 
@@ -117,6 +114,8 @@ test("zigZagJoin", async (t) => {
             ["byX", 1],
             ["byY", 0],
           ],
+          undefined,
+          undefined,
           { direction: "prev" },
         ),
       );
@@ -146,15 +145,6 @@ test("zigZagJoin", async (t) => {
       },
     );
 
-    expectTypeOf(zigZagQuery<DatabaseSchemaOf<typeof db>["items"]>)
-      .parameter(1)
-      .toEqualTypeOf<
-        ReadonlyArray<
-          | readonly ["byTagAndTime", readonly [string, number] | readonly [string] | readonly []]
-          | readonly ["byTitleAndTime", readonly [string, number] | readonly [string] | readonly []]
-        >
-      >();
-
     await t.test("works with 1 filter", async () => {
       const tx = db.tx("items", "readonly");
       const results = await Array.fromAsync(zigZagQuery(tx.store("items"), [["byTitleAndTime", ["bar"]]]));
@@ -171,9 +161,7 @@ test("zigZagJoin", async (t) => {
     await t.test("works with 1 filter and range", async () => {
       const tx = db.tx("items", "readonly");
       const results = await Array.fromAsync(
-        zigZagQuery(tx.store("items"), [["byTitleAndTime", ["bar"]]], {
-          suffixRange: KeyRange.upperBound([1_520], true),
-        }),
+        zigZagQuery(tx.store("items"), [["byTitleAndTime", ["bar"]]], [KeyRange.upperBound(1_520, true)]),
       );
       await tx.done;
       deepEqual(results, [
@@ -208,6 +196,8 @@ test("zigZagJoin", async (t) => {
             ["byTagAndTime", ["foo"]],
             ["byTitleAndTime", ["bar"]],
           ],
+          undefined,
+          undefined,
           { direction: "prev" },
         ),
       );
@@ -229,7 +219,7 @@ test("zigZagJoin", async (t) => {
             ["byTagAndTime", ["foo"]],
             ["byTitleAndTime", ["bar"]],
           ],
-          { suffixRange: KeyRange.lowerBound([1_520]) },
+          [KeyRange.lowerBound(1_520)],
         ),
       );
       await tx.done;
@@ -249,7 +239,9 @@ test("zigZagJoin", async (t) => {
             ["byTagAndTime", ["foo"]],
             ["byTitleAndTime", ["bar"]],
           ],
-          { suffixRange: KeyRange.lowerBound([1_520]), direction: "prev" },
+          [KeyRange.lowerBound(1_520)],
+          undefined,
+          { direction: "prev" },
         ),
       );
       await tx.done;

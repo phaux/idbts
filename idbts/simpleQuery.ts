@@ -5,7 +5,7 @@ import type { QueryOptions } from "./query.ts";
 
 export async function* simpleQuery(
   store: ReadonlyDBStore<any> | DBIndex<any, any>,
-  range: KeyRange<ValidKey> | null | undefined,
+  range: KeyRange<ValidKey> | undefined,
   options: Pick<QueryOptions<any>, "direction" | "offset" | "limit">,
 ): AsyncGenerator<any, undefined, undefined> {
   const { direction, offset = 0, limit = Infinity } = options;

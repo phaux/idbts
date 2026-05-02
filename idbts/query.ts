@@ -1,6 +1,6 @@
 import type { DBIndex } from "./DBIndex.ts";
 import type { AnyStoreSchema, ReadonlyDBStore } from "./DBStore.ts";
-import { arrayifyRange, isSingleValueRange, KeyRange, type ValidKey } from "./KeyRange.ts";
+import { isSingleValueRange, KeyRange, type ValidKey } from "./KeyRange.ts";
 import { multiDimensionalQuery } from "./multiDimensionalQuery.ts";
 import { simpleQuery } from "./simpleQuery.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
@@ -88,16 +88,13 @@ function planQuery(store: ReadonlyDBStore<any>, options: QueryOptions<any>): () 
       );
       return () =>
         Array.fromAsync(
-          zigZagQuery(store, zigZagFilters, { suffixRange: range && arrayifyRange(range), direction, limit }),
+          zigZagQuery(store, zigZagFilters, range ? [range] : undefined, undefined, { direction, limit }),
         );
     }
 
     // Zig zag query with default sort by primary key
     const zigZagFilters = eqFilters.map(([path, key]) => [findIndexExact(store, path).raw.name, key] as const);
-    return () =>
-      Array.fromAsync(
-        zigZagQuery(store, zigZagFilters, { keyRange: keyRange && arrayifyRange(keyRange), direction, limit }),
-      );
+    return () => Array.fromAsync(zigZagQuery(store, zigZagFilters, undefined, keyRange, { direction, limit }));
   }
 
   if (orderBy != null && isArray(orderBy)) {
@@ -109,7 +106,7 @@ function planQuery(store: ReadonlyDBStore<any>, options: QueryOptions<any>): () 
     }
     const index = findIndexExact(store, orderBy);
     const ranges = (index.raw.keyPath as string[]).map((path) => rangeFilters.find(([p]) => p === path)?.[1]);
-    return () => Array.fromAsync(multiDimensionalQuery(index, ranges, { keyRange, direction, limit }));
+    return () => Array.fromAsync(multiDimensionalQuery(index, ranges, keyRange, { direction, limit }));
   }
 
   if (rangeFilters.length > 1) {
@@ -119,11 +116,11 @@ function planQuery(store: ReadonlyDBStore<any>, options: QueryOptions<any>): () 
       rangeFilters.map(([path]) => path),
     );
     const ranges = (index.raw.keyPath as string[]).map((path) => rangeFilters.find(([p]) => p === path)![1]);
-    return () => Array.fromAsync(multiDimensionalQuery(index, ranges, { direction, limit }));
+    return () => Array.fromAsync(multiDimensionalQuery(index, ranges, undefined, { direction, limit }));
   }
 
   if (offset > 0 || Number.isFinite(limit) || direction != null) {
-    return () => Array.fromAsync(simpleQuery(store, null, { direction, limit, offset }));
+    return () => Array.fromAsync(simpleQuery(store, undefined, { direction, limit, offset }));
   }
 
   return () => store.getAll();
