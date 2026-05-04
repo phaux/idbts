@@ -3,15 +3,13 @@ import { type ValidKey, getMaxKey, KeyRange, minKey } from "./KeyRange.ts";
 
 export async function advanceCursorByRanges<T>(
   cursor: DBCursor<T, ValidKey, ValidKey> | null,
-  prefix: ValidKey,
   keyRanges: ReadonlyArray<KeyRange<ValidKey> | undefined>,
   primaryKeyRange: KeyRange<ValidKey> | undefined,
   reverse: boolean,
 ): Promise<DBCursor<T, ValidKey, ValidKey> | null> {
   skips: while (cursor) {
     // Move cursor according to postfix ranges.
-    if (keyRanges && Array.isArray(prefix) && Array.isArray(cursor.key)) {
-      const postfix = cursor.key.slice(prefix.length);
+    if (Array.isArray(cursor.key)) {
       for (let keyIdx = 0; keyIdx < keyRanges.length; keyIdx++) {
         const range = keyRanges[keyIdx];
         if (!range) continue;
@@ -19,12 +17,12 @@ export async function advanceCursorByRanges<T>(
         // Move cursor to the start of the range if it's before it.
         const start = reverse ? range.upper : range.lower;
         if (start != null) {
-          let order = indexedDB.cmp(postfix[keyIdx], start);
+          let order = indexedDB.cmp(cursor.key[keyIdx], start);
           if (reverse) order = -order;
           const open = reverse ? range.upperOpen : range.lowerOpen;
           if (open) order--;
           if (order < 0) {
-            const nextKey = [...cursor.key.slice(0, prefix.length), ...postfix.slice(0, keyIdx), start];
+            const nextKey = [...cursor.key.slice(0, keyIdx), start];
             cursor = await cursor.continue(indexedDB.cmp(nextKey, cursor.key) != 0 ? nextKey : undefined);
             continue skips;
           }
@@ -33,16 +31,12 @@ export async function advanceCursorByRanges<T>(
         // Move cursor to the next item if it's after the end of the range.
         const end = reverse ? range.lower : range.upper;
         if (end != null) {
-          let order = indexedDB.cmp(postfix[keyIdx], end);
+          let order = indexedDB.cmp(cursor.key[keyIdx], end);
           if (reverse) order = -order;
           const open = reverse ? range.lowerOpen : range.upperOpen;
           if (open) order++;
           if (order > 0) {
-            const nextKey = [
-              ...cursor.key.slice(0, prefix.length),
-              ...postfix.slice(0, keyIdx),
-              reverse ? minKey : getMaxKey(),
-            ];
+            const nextKey = [...cursor.key.slice(0, keyIdx), reverse ? minKey : getMaxKey()];
             cursor = await cursor.continue(nextKey);
             continue skips;
           }

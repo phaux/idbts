@@ -55,16 +55,23 @@ export async function* zigZagQuery<Schema extends AnyStoreSchema>(
 
   // Create a cursor for every filter.
   let cursors = await Promise.all(
-    filters.map(([idxName, value]) => store.index(idxName).openCursor(prefixRange(value), direction)),
+    filters.map(([idxName, value]) => {
+      // For compound indexes, value can be a prefix of the indexed key.
+      // In that case we want to query for all keys starting with the prefix.
+      const range = Array.isArray(value) ? KeyRange.bound(value, [...value, getMaxKey()]) : KeyRange.only(value);
+      return store.index(idxName).openCursor(range, direction);
+    }),
   );
 
   let i = 0;
   while (i < limit) {
     // Move all cursors according to postfix and primary key ranges.
     cursors = await Promise.all(
-      cursors.map((cursor, i) =>
-        advanceCursorByRanges(cursor, filters[i]![1], postfixRanges, primaryKeyRange, direction === "prev"),
-      ),
+      cursors.map((cursor, i) => {
+        // First key part is already constrained by cursor's range
+        const ranges = [undefined, ...postfixRanges];
+        return advanceCursorByRanges(cursor, ranges, primaryKeyRange, direction === "prev");
+      }),
     );
 
     // If any cursor is null, we've reached the end.
@@ -121,9 +128,4 @@ function continuePostfix(
   const primaryKey = postfix[postfix.length - 1]!;
   const key = [...prefix, ...keyPostfix];
   return cursor.continuePrimaryKey(key, primaryKey);
-}
-
-function prefixRange(prefix: ValidKey): KeyRange<ValidKey> {
-  if (!Array.isArray(prefix)) return KeyRange.only(prefix);
-  return KeyRange.bound(prefix, [...prefix, getMaxKey()]);
 }

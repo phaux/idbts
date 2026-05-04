@@ -13,7 +13,7 @@ export async function* multiDimensionalQuery(
   let cursor = await index.openCursor(null, direction);
   let itemIdx = 0;
   while (true) {
-    cursor = await advanceCursorByRanges(cursor, [], keyRanges, primaryKeyRange, direction === "prev");
+    cursor = await advanceCursorByRanges(cursor, keyRanges, primaryKeyRange, direction === "prev");
     if (!cursor) break;
     yield cursor.value;
     itemIdx++;
