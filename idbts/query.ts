@@ -1,10 +1,8 @@
-import type { DBIndex } from "./DBIndex.ts";
 import type { AnyStoreSchema, ReadonlyDBStore } from "./DBStore.ts";
 import { isSingleValueRange, KeyRange, type ValidKey } from "./KeyRange.ts";
 import { multiDimensionalQuery } from "./multiDimensionalQuery.ts";
-import { simpleQuery } from "./simpleQuery.ts";
+import { simpleQuery, simpleQuery2 } from "./simpleQuery.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
-import type { AnyPath } from "./ValuesAtPaths.ts";
 import { zigZagQuery } from "./zigZagQuery.ts";
 
 export const primaryKey = Symbol("primaryKey");
@@ -13,144 +11,136 @@ export async function query<const Schema extends AnyStoreSchema>(
   store: ReadonlyDBStore<Schema>,
   options: QueryOptions<Schema>,
 ): Promise<SchemaValue<Schema["value"]>[]> {
-  const queryFn = planQuery(store, options);
+  const queryFn = planQuery(store.raw, options);
   return queryFn();
 }
 
-function planQuery(store: ReadonlyDBStore<any>, options: QueryOptions<any>): () => Promise<any[]> {
-  const { where = {}, orderBy, direction, limit = Infinity, offset = 0 } = options;
+function planQuery(store: IDBObjectStore, options: QueryOptions<any>): () => Promise<any[]> {
+  const { where = {}, orderBy, direction, limit = Infinity } = options;
 
   const keyRange = where[primaryKey];
   const filters = Object.entries(where);
   const rangeFilters = objectEntries(where).filter(([_path, range]) => !isSingleValueRange(range));
-
-  if (keyRange) {
-    if (orderBy != null) {
-      throw new Error("Primary key filter cannot use sorting.");
-    }
-
-    if (isSingleValueRange(keyRange)) {
-      // Get by single primary key
-      if (filters.length > 0) {
-        throw new Error("Primary key equality filter cannot be combined with other filters.");
-      }
-      return async () => {
-        const result = await store.get(keyRange.lower);
-        return (result != null ? [result] : []).slice(offset, offset + limit);
-      };
-    }
-
-    if (rangeFilters.length > 0) {
-      throw new Error("Primary key range filter cannot be combined with other range filters.");
-    }
-
-    return () => Array.fromAsync(simpleQuery(store, keyRange, { direction, limit, offset }));
-  }
-
-  if (filters.length === 1 || (filters.length === 0 && orderBy != null && !isArray(orderBy))) {
-    // Single range/order field can use simple query
-    const filter = filters[0];
-    if (filter && orderBy != null && filter[0] !== orderBy) {
-      throw new Error("Sorting field must match filter field.");
-    }
-    const field = filter?.[0] ?? orderBy!;
-    const range = filter?.[1];
-    // Find index for sorting
-    const index = findIndexExact(store, field);
-    return () => Array.fromAsync(simpleQuery(index, range, { direction, limit, offset }));
-  }
-
   const eqFilters = filters
     .filter(([_path, range]) => isSingleValueRange(range))
     .map(([path, range]) => [path, range.lower!] as const);
-  if (eqFilters.length > 0) {
-    // Equality filters require zig zag query
+  const orderFields = toArray(orderBy)
+    // Remove fields which are filtered by single value from ordering, as they don't affect order.
+    .filter((field) => !eqFilters.some(([path]) => path === field));
 
-    if (rangeFilters.length > 1) {
-      throw new Error("Equality filters cannot be combined with multiple range filters.");
-    }
-    const rangeFilter = rangeFilters[0];
-
-    if (offset > 0) {
-      throw new Error("Equality filters cannot use offset.");
-    }
-
-    const sortField = rangeFilter?.[0] ?? orderBy;
-    if (sortField != null && !eqFilters.some(([path]) => path === sortField)) {
-      // Zig zag query with custom sort
-      if (orderBy != null && orderBy !== sortField) {
-        throw new Error("Sorting field must match filter field.");
-      }
-      const range = rangeFilter?.[1];
-      // Every filter index must also end with the field for ordering.
-      const zigZagFilters = eqFilters.map(
-        ([path, key]) => [findIndexExact(store, [path, sortField].flat(1)).raw.name, [key]] as const,
-      );
-      return () =>
-        Array.fromAsync(
-          zigZagQuery(store, zigZagFilters, range ? [range] : undefined, undefined, { direction, limit }),
-        );
-    }
-
-    // Zig zag query with default sort by primary key
-    const zigZagFilters = eqFilters.map(([path, key]) => [findIndexExact(store, path).raw.name, key] as const);
-    return () => Array.fromAsync(zigZagQuery(store, zigZagFilters, undefined, keyRange, { direction, limit }));
+  if (filters.length + orderFields.length === 0) {
+    return () => Array.fromAsync(simpleQuery(store, keyRange, { direction, limit }));
   }
 
-  if (orderBy != null && isArray(orderBy)) {
-    // Order by multiple fields requires multi-dimensional query
-    for (const [path] of filters) {
-      if (!orderBy.includes(path)) {
-        throw new Error("Compound field sorting can only filter by the sorted fields.");
-      }
+  const eqFields = new Set(eqFilters.map(([path]) => path));
+  const rangeFields = new Set(rangeFilters.map(([path]) => path));
+  const indexes = findIndexes(store, orderFields, eqFields, rangeFields);
+  const allIndexes = Array.from(store.indexNames).map((name) => store.index(name));
+  if (indexes.length === 0) throw new MissingIndexError(orderFields, eqFields, rangeFields, allIndexes);
+
+  if (indexes.length === 1) {
+    const index = indexes[0]!;
+    if (!Array.isArray(index.keyPath)) {
+      const range = where[index.keyPath];
+      return () => Array.fromAsync(simpleQuery2(index, range, keyRange, { direction, limit }));
     }
-    const index = findIndexExact(store, orderBy);
-    const ranges = (index.raw.keyPath as string[]).map((path) => rangeFilters.find(([p]) => p === path)?.[1]);
+    // For compound index we need to create ranges for all fields in the index based on provided filters.
+    const ranges = index.keyPath.map((field) => where[field]);
     return () => Array.fromAsync(multiDimensionalQuery(index, ranges, keyRange, { direction, limit }));
   }
 
-  if (rangeFilters.length > 1) {
-    // Multiple range filters require multi-dimensional query
-    const index = findIndex(
-      store,
-      rangeFilters.map(([path]) => path),
-    );
-    const ranges = (index.raw.keyPath as string[]).map((path) => rangeFilters.find(([p]) => p === path)![1]);
-    return () => Array.fromAsync(multiDimensionalQuery(index, ranges, undefined, { direction, limit }));
-  }
-
-  if (offset > 0 || Number.isFinite(limit) || direction != null) {
-    return () => Array.fromAsync(simpleQuery(store, undefined, { direction, limit, offset }));
-  }
-
-  return () => store.getAll();
-}
-
-const listFmt = new Intl.ListFormat("en");
-
-function findIndexExact(store: ReadonlyDBStore<any>, path: AnyPath): DBIndex<any, any> {
-  const indexNames = Array.from(store.raw.indexNames);
-  const indexName = indexNames.find((name) => indexedDB.cmp(store.raw.index(name).keyPath, path) === 0);
-  if (indexName == null) throw new Error(`Index for ${listFmt.format(toArray(path))} not found.`);
-  return store.index(indexName);
-}
-
-function findIndex(store: ReadonlyDBStore<any>, paths: readonly string[]): DBIndex<any, any> {
-  const indexNames = Array.from(store.raw.indexNames);
-  const indexName = indexNames.find((name) => {
-    const idx = store.raw.index(name);
-    if (!Array.isArray(idx.keyPath)) return false;
-    return paths.every((path) => idx.keyPath.includes(path));
+  // If we have multiple indexes, use zig zag query.
+  const indexValues = indexes.map((index) => {
+    if (isArray(index.keyPath)) {
+      return [index, [where[index.keyPath[0]!]!.lower!]] as const;
+    } else {
+      return [index, where[index.keyPath]!.lower!] as const;
+    }
   });
-  if (indexName == null) throw new Error(`Index with ${listFmt.format(paths)} not found.`);
-  return store.index(indexName);
+  const indexFields = indexes[0]!.keyPath;
+  const postfixRanges = Array.isArray(indexFields) ? indexFields.slice(1).map((field) => where[field]) : undefined;
+  return () => Array.fromAsync(zigZagQuery(indexValues, postfixRanges, keyRange, { direction, limit }));
+}
+
+function findIndexes(
+  store: IDBObjectStore,
+  orderFields: readonly string[],
+  eqFields: ReadonlySet<string>,
+  rangeFields: ReadonlySet<string>,
+): readonly IDBIndex[] {
+  const indexes = Array.from(store.indexNames).map((name) => store.index(name));
+  const sortableFields = new Set([...orderFields, ...rangeFields]);
+  const allFields = new Set([...eqFields, ...sortableFields]);
+  const zigZagIndexes = new Map<string, Map<string, IDBIndex>>();
+  let fullIndex: IDBIndex | undefined;
+
+  for (const index of indexes) {
+    const indexFields = toArray(index.keyPath);
+    const sortableIndexFields = indexFields.filter((field) => !eqFields.has(field));
+
+    // If index consists of all the fields we need and begins with order fields, use it.
+    if (
+      allFields.values().every((field) => indexFields.includes(field)) &&
+      orderFields.every((field, i) => sortableIndexFields[i] === field)
+    ) {
+      if (!fullIndex || toArray(index.keyPath).length < toArray(fullIndex.keyPath).length) {
+        fullIndex = index;
+      }
+    }
+
+    // If index begins with one of eq fields followed by sortable fields, add it to potential zig zag indexes.
+    if (
+      eqFields.has(indexFields[0]!) &&
+      sortableFields.values().every((field) => indexFields.includes(field)) &&
+      orderFields.every((field, i) => indexFields[i + 1] === field)
+    ) {
+      // Group indexes by the fields they have after eq fields, as those are the ones used for zig zag merge.
+      const postfix = indexFields.slice(1).join("+");
+      const foundIndexes = zigZagIndexes.get(postfix) ?? new Map<string, IDBIndex>();
+      foundIndexes.set(indexFields[0]!, index);
+      if (foundIndexes.size === eqFields.size) {
+        // If we have found indexes for all eq fields with the same postfix, we can use them for zig zag merge.
+        return Array.from(foundIndexes.values());
+      }
+      zigZagIndexes.set(postfix, foundIndexes);
+    }
+  }
+
+  return toArray(fullIndex);
+}
+
+export class MissingIndexError extends Error {
+  constructor(
+    orderFields: readonly string[],
+    eqFields: ReadonlySet<string>,
+    rangeFields: ReadonlySet<string>,
+    allIndexes: readonly IDBIndex[],
+  ) {
+    const sortableFields = new Set([...orderFields, ...rangeFields]);
+    const missingIndexKeyPaths: string[] = [];
+    const allIndexKeyPaths = allIndexes.map((index) => toArray(index.keyPath).join("+"));
+    if (eqFields.size <= 1) {
+      missingIndexKeyPaths.push([...eqFields, ...sortableFields].join("+"));
+    } else {
+      for (const eqField of eqFields) {
+        const prefix = [eqField, ...sortableFields];
+        if (!allIndexKeyPaths.includes(prefix.join("+"))) {
+          missingIndexKeyPaths.push(prefix.join("+"));
+        }
+      }
+    }
+    if (missingIndexKeyPaths.length === 1) {
+      super(`Missing index on ${missingIndexKeyPaths[0]}.`);
+    } else {
+      super(`Missing indices on ${missingIndexKeyPaths.join(", ")}.`);
+    }
+  }
 }
 
 export type QueryOptions<Schema extends AnyStoreSchema> = {
   readonly where?: Readonly<Record<string | symbol, KeyRange<ValidKey>>> | undefined;
   readonly orderBy?: string | readonly string[] | undefined;
   readonly direction?: "next" | "prev" | undefined;
-  readonly offset?: number | undefined;
   readonly limit?: number | undefined;
 };
 
@@ -158,4 +148,5 @@ const objectEntries = Object.entries as <T extends object>(obj: T) => [keyof T &
 
 const isArray = Array.isArray as <T>(value: any) => value is readonly T[];
 
-const toArray = <T>(value: T | readonly T[]): readonly T[] => (isArray(value) ? value : [value]);
+const toArray = <T>(value: T | readonly T[] | null | undefined): readonly T[] =>
+  isArray(value) ? value : value != null ? [value] : [];

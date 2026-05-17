@@ -48,7 +48,7 @@ export type ValidKey = string | number | Date | BufferSource | readonly ValidKey
  * A range of keys.
  * Used to query object stores.
  */
-export interface KeyRange<out T extends ValidKey> extends IDBKeyRange {
+export interface KeyRange<out T extends ValidKey = ValidKey> extends IDBKeyRange {
   readonly lower: T | undefined;
   readonly upper: T | undefined;
 }
@@ -59,7 +59,7 @@ export interface KeyRange<out T extends ValidKey> extends IDBKeyRange {
 export type MaybeKeyRange<T extends ValidKey> = T | KeyRange<T>;
 
 /** Returns the maximum possible key value, which is greater than all other keys. */
-export const getMaxKey = () => [[]] as const;
+export const getMaxKey = () => [[]] as [[]];
 
 /** The minimum possible key value, which is less than all other keys. */
 export const minKey = -Infinity;

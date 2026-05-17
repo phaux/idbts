@@ -1,21 +1,44 @@
-import type { DBIndex } from "./DBIndex.ts";
-import type { ReadonlyDBStore } from "./DBStore.ts";
-import type { KeyRange, ValidKey } from "./KeyRange.ts";
+import { advanceCursorByPrimaryKeyRange } from "./advanceCursorByRanges.ts";
+import { idbReqToPromise } from "./idbReqToPromise.ts";
 import type { QueryOptions } from "./query.ts";
 
-export async function* simpleQuery(
-  store: ReadonlyDBStore<any> | DBIndex<any, any>,
-  range: KeyRange<ValidKey> | undefined,
-  options: Pick<QueryOptions<any>, "direction" | "offset" | "limit">,
-): AsyncGenerator<any, undefined, undefined> {
-  const { direction, offset = 0, limit = Infinity } = options;
-  let cursor = await store.openCursor(range, direction);
-  if (offset > 0 && cursor != null) cursor = await cursor.advance(offset);
+export async function* simpleQuery<T>(
+  store: IDBObjectStore,
+  keyRange: IDBKeyRange | undefined,
+  options: Pick<QueryOptions<any>, "direction" | "limit">,
+): AsyncGenerator<T, undefined, undefined> {
+  const { direction, limit = Infinity } = options;
+  let cursor = await idbReqToPromise(store.openCursor(keyRange, direction));
   let i = 0;
-  while (cursor != null) {
-    yield cursor.value;
+  while (cursor && i < limit) {
     i++;
-    if (i >= limit) break;
-    cursor = await cursor.continue();
+    yield cursor.value;
+    cursor.continue();
+    cursor = await idbReqToPromise(cursor.request);
+  }
+}
+
+export async function* simpleQuery2<T>(
+  index: IDBIndex,
+  keyRange: IDBKeyRange | undefined,
+  primaryKeyRange: IDBKeyRange | undefined,
+  options: Pick<QueryOptions<any>, "direction" | "limit">,
+): AsyncGenerator<T, undefined, undefined> {
+  const { direction, limit = Infinity } = options;
+  let cursor = await idbReqToPromise(index.openCursor(keyRange, direction));
+  let i = 0;
+  while (cursor && i < limit) {
+    if (primaryKeyRange) {
+      const oldKey = cursor.primaryKey;
+      const nextCursor = await advanceCursorByPrimaryKeyRange(cursor, primaryKeyRange, direction === "prev");
+      if (!nextCursor || indexedDB.cmp(nextCursor.primaryKey, oldKey) !== 0) {
+        cursor = nextCursor;
+        continue;
+      }
+    }
+    i++;
+    yield cursor.value;
+    cursor.continue();
+    cursor = await idbReqToPromise(cursor.request);
   }
 }
