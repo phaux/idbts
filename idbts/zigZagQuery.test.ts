@@ -18,14 +18,7 @@ async function initDB<T extends { id: string | number }, const Indexes extends A
       indexes,
     },
   });
-  {
-    const tx = db.tx("items", "readwrite");
-    const store = tx.store("items");
-    for (const item of items) {
-      await store.add(item);
-    }
-    await tx.done;
-  }
+  await db.insert("items", items);
   return db;
 }
 
@@ -48,29 +41,27 @@ test("zigZagJoin", async (t) => {
     );
 
     await t.test("rejects if no filters", async (t) => {
-      const tx = db.tx("items", "readonly");
       await rejects(() => Array.fromAsync(zigZagQuery([])), {
         message: "Reduce of empty array with no initial value",
       });
-      await tx.done;
     });
 
     await t.test("returns empty array when no matches", async (t) => {
-      const tx = db.tx("items", "readonly");
+      const tx = db.idb.transaction("items", "readonly");
+      const store = tx.objectStore("items");
       const results = await Array.fromAsync(
         zigZagQuery([
-          [tx.store().index("byX").raw, 123],
-          [tx.store().index("byY").raw, 321],
+          [store.index("byX"), 123],
+          [store.index("byY"), 321],
         ]),
       );
-      await tx.done;
       deepEqual(results, []);
     });
 
     await t.test("works with 1 filter", async () => {
-      const tx = db.tx("items", "readonly");
-      const results = await Array.fromAsync(zigZagQuery([[tx.store().index("byX").raw, 1]]));
-      await tx.done;
+      const tx = db.idb.transaction("items", "readonly");
+      const store = tx.objectStore("items");
+      const results = await Array.fromAsync(zigZagQuery([[store.index("byX"), 1]]));
       deepEqual(results, [
         { id: 2, x: 1, y: 0 },
         { id: 4, x: 1, y: 1 },
@@ -79,26 +70,26 @@ test("zigZagJoin", async (t) => {
     });
 
     await t.test("works with 2 filters - 1 result", async () => {
-      const tx = db.tx("items", "readonly");
+      const tx = db.idb.transaction("items", "readonly");
+      const store = tx.objectStore("items");
       const results = await Array.fromAsync(
         zigZagQuery([
-          [tx.store().index("byX").raw, 1],
-          [tx.store().index("byY").raw, 1],
+          [store.index("byX"), 1],
+          [store.index("byY"), 1],
         ]),
       );
-      await tx.done;
       deepEqual(results, [{ id: 4, x: 1, y: 1 }]);
     });
 
     await t.test("works with 2 filters - multiple results", async () => {
-      const tx = db.tx("items", "readonly");
+      const tx = db.idb.transaction("items", "readonly");
+      const store = tx.objectStore("items");
       const results = await Array.fromAsync(
         zigZagQuery([
-          [tx.store().index("byX").raw, 1],
-          [tx.store().index("byY").raw, 0],
+          [store.index("byX"), 1],
+          [store.index("byY"), 0],
         ]),
       );
-      await tx.done;
       deepEqual(results, [
         { id: 2, x: 1, y: 0 },
         { id: 6, x: 1, y: 0 },
@@ -106,19 +97,19 @@ test("zigZagJoin", async (t) => {
     });
 
     await t.test("works with 2 filters reversed", async () => {
-      const tx = db.tx("items", "readonly");
+      const tx = db.idb.transaction("items", "readonly");
+      const store = tx.objectStore("items");
       const results = await Array.fromAsync(
         zigZagQuery(
           [
-            [tx.store().index("byX").raw, 1],
-            [tx.store().index("byY").raw, 0],
+            [store.index("byX"), 1],
+            [store.index("byY"), 0],
           ],
           undefined,
           undefined,
           { direction: "prev" },
         ),
       );
-      await tx.done;
       deepEqual(results, [
         { id: 6, x: 1, y: 0 },
         { id: 2, x: 1, y: 0 },
@@ -145,9 +136,9 @@ test("zigZagJoin", async (t) => {
     );
 
     await t.test("works with 1 filter", async () => {
-      const tx = db.tx("items", "readonly");
-      const results = await Array.fromAsync(zigZagQuery([[tx.store().index("byTitleAndTime").raw, ["bar"]]]));
-      await tx.done;
+      const tx = db.idb.transaction("items", "readonly");
+      const store = tx.objectStore("items");
+      const results = await Array.fromAsync(zigZagQuery([[store.index("byTitleAndTime"), ["bar"]]]));
       deepEqual(results, [
         { id: 8, timestamp: 1_490, tag: "wtf", title: "bar" },
         { id: 6, timestamp: 1_510, tag: "foo", title: "bar" },
@@ -158,11 +149,11 @@ test("zigZagJoin", async (t) => {
     });
 
     await t.test("works with 1 filter and range", async () => {
-      const tx = db.tx("items", "readonly");
+      const tx = db.idb.transaction("items", "readonly");
+      const store = tx.objectStore("items");
       const results = await Array.fromAsync(
-        zigZagQuery([[tx.store().index("byTitleAndTime").raw, ["bar"]]], [KeyRange.upperBound(1_520, true)]),
+        zigZagQuery([[store.index("byTitleAndTime"), ["bar"]]], [KeyRange.upperBound(1_520, true)]),
       );
-      await tx.done;
       deepEqual(results, [
         { id: 8, timestamp: 1_490, tag: "wtf", title: "bar" },
         { id: 6, timestamp: 1_510, tag: "foo", title: "bar" },
@@ -170,14 +161,14 @@ test("zigZagJoin", async (t) => {
     });
 
     await t.test("works with 2 filters", async () => {
-      const tx = db.tx("items", "readonly");
+      const tx = db.idb.transaction("items", "readonly");
+      const store = tx.objectStore("items");
       const results = await Array.fromAsync(
         zigZagQuery([
-          [tx.store().index("byTagAndTime").raw, ["foo"]],
-          [tx.store().index("byTitleAndTime").raw, ["bar"]],
+          [store.index("byTagAndTime"), ["foo"]],
+          [store.index("byTitleAndTime"), ["bar"]],
         ]),
       );
-      await tx.done;
       deepEqual(results, [
         { id: 6, timestamp: 1_510, tag: "foo", title: "bar" },
         { id: 3, timestamp: 1_520, tag: "foo", title: "bar" },
@@ -187,19 +178,19 @@ test("zigZagJoin", async (t) => {
     });
 
     await t.test("works with 2 filters reversed", async () => {
-      const tx = db.tx("items", "readonly");
+      const tx = db.idb.transaction("items", "readonly");
+      const store = tx.objectStore("items");
       const results = await Array.fromAsync(
         zigZagQuery(
           [
-            [tx.store().index("byTagAndTime").raw, ["foo"]],
-            [tx.store().index("byTitleAndTime").raw, ["bar"]],
+            [store.index("byTagAndTime"), ["foo"]],
+            [store.index("byTitleAndTime"), ["bar"]],
           ],
           undefined,
           undefined,
           { direction: "prev" },
         ),
       );
-      await tx.done;
       deepEqual(results, [
         { id: 2, timestamp: 1_530, tag: "foo", title: "bar" },
         { id: 5, timestamp: 1_520, tag: "foo", title: "bar" },
@@ -209,17 +200,17 @@ test("zigZagJoin", async (t) => {
     });
 
     await t.test("works with 2 filters and range", async () => {
-      const tx = db.tx("items", "readonly");
+      const tx = db.idb.transaction("items", "readonly");
+      const store = tx.objectStore("items");
       const results = await Array.fromAsync(
         zigZagQuery(
           [
-            [tx.store().index("byTagAndTime").raw, ["foo"]],
-            [tx.store().index("byTitleAndTime").raw, ["bar"]],
+            [store.index("byTagAndTime"), ["foo"]],
+            [store.index("byTitleAndTime"), ["bar"]],
           ],
           [KeyRange.lowerBound(1_520)],
         ),
       );
-      await tx.done;
       deepEqual(results, [
         { id: 3, timestamp: 1_520, tag: "foo", title: "bar" },
         { id: 5, timestamp: 1_520, tag: "foo", title: "bar" },
@@ -228,19 +219,19 @@ test("zigZagJoin", async (t) => {
     });
 
     await t.test("works with 2 filters and range reversed", async () => {
-      const tx = db.tx("items", "readonly");
+      const tx = db.idb.transaction("items", "readonly");
+      const store = tx.objectStore("items");
       const results = await Array.fromAsync(
         zigZagQuery(
           [
-            [tx.store().index("byTagAndTime").raw, ["foo"]],
-            [tx.store().index("byTitleAndTime").raw, ["bar"]],
+            [store.index("byTagAndTime"), ["foo"]],
+            [store.index("byTitleAndTime"), ["bar"]],
           ],
           [KeyRange.lowerBound(1_520)],
           undefined,
           { direction: "prev" },
         ),
       );
-      await tx.done;
       deepEqual(results, [
         { id: 2, timestamp: 1_530, tag: "foo", title: "bar" },
         { id: 5, timestamp: 1_520, tag: "foo", title: "bar" },

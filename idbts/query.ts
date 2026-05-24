@@ -1,4 +1,4 @@
-import type { AnyStoreSchema, ReadonlyDBStore } from "./DBStore.ts";
+import type { AnyDatabaseSchema, AnyStoreSchema, Database } from "./Database.ts";
 import { isSingleValueRange, KeyRange, type ValidKey } from "./KeyRange.ts";
 import { multiDimensionalQuery } from "./multiDimensionalQuery.ts";
 import { simpleQuery, simpleQuery2 } from "./simpleQuery.ts";
@@ -7,11 +7,14 @@ import { zigZagQuery } from "./zigZagQuery.ts";
 
 export const primaryKey = Symbol("primaryKey");
 
-export async function query<const Schema extends AnyStoreSchema>(
-  store: ReadonlyDBStore<Schema>,
-  options: QueryOptions<Schema>,
-): Promise<SchemaValue<Schema["value"]>[]> {
-  const queryFn = planQuery(store.raw, options);
+export async function query<const Schema extends AnyDatabaseSchema, StoreName extends keyof Schema & string>(
+  db: Database<Schema>,
+  storeName: StoreName,
+  options: QueryOptions<Schema[StoreName]>,
+): Promise<SchemaValue<Schema[StoreName]["value"]>[]> {
+  const tx = db.idb.transaction(storeName, "readonly");
+  const store = tx.objectStore(storeName);
+  const queryFn = planQuery(store, options);
   return queryFn();
 }
 

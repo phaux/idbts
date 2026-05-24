@@ -2,12 +2,13 @@ import "fake-indexeddb/auto";
 import "observable-polyfill";
 
 import { deepEqual, rejects } from "node:assert/strict";
-import { test } from "node:test";
+import { after, suite, test } from "node:test";
 import { KeyRange, openDB, schema } from "./index.ts";
 import { primaryKey, query } from "./query.ts";
 
-test("simple store query", async (t) => {
+suite("query", { concurrency: true }, async () => {
   type Item = {
+    id: number;
     name: { first: string; last: string };
     age: number;
     points: number;
@@ -17,7 +18,7 @@ test("simple store query", async (t) => {
   const db = await openDB("query-simple", 1, {
     items: {
       value: schema<Item>(),
-      key: schema<number>(),
+      keyPath: "id",
       indexes: {
         byFirstName: { keyPath: "name.first" },
         byLastName: { keyPath: "name.last" },
@@ -32,159 +33,128 @@ test("simple store query", async (t) => {
   });
 
   const data = [
-    /*  0:  1 */ { name: { first: "Alicja", last: "Nowak" }, age: 30, points: 1420, level: 10 },
-    /*  1:  3 */ { name: { first: "Wojciech", last: "Kowalski" }, age: 40, points: 1312 },
-    /*  2:  5 */ { name: { first: "Maciej", last: "Nowak" }, age: 55, points: 1210 },
-    /*  3:  7 */ { name: { first: "Ewa", last: "Wieczorek" }, age: 28, points: 850 },
-    /*  4:  9 */ { name: { first: "Anna", last: "Sobczak" }, age: 31, points: 980 },
-    /*  5: 11 */ { name: { first: "Nadzieja", last: "Dudek" }, age: 22, points: 1312 },
-    /*  6: 13 */ { name: { first: "Piotr", last: "Dudek" }, age: 25, points: 1515 },
-    /*  7: 15 */ { name: { first: "Bożena", last: "Majewska" }, age: 45, points: 1002 },
-    /*  8: 17 */ { name: { first: "Piotr", last: "Nowak" }, age: 15, points: 1500 },
-    /*  9: 19 */ { name: { first: "Sławomir", last: "Kowalski" }, age: 29, points: 900, level: 5 },
-    /* 10: 21 */ { name: { first: "Radosław", last: "Wieczorek" }, age: 31, points: 1010 },
-    /* 11: 23 */ { name: { first: "Anna", last: "Majewska" }, age: 42, points: 1440 },
-    /* 12: 25 */ { name: { first: "Maciej", last: "Nowak" }, age: 35, points: 810, level: 2 },
-    /* 13: 27 */ { name: { first: "Paweł", last: "Sobczak" }, age: 27, points: 1100 },
-    /* 14: 29 */ { name: { first: "Paweł", last: "Nowak" }, age: 38, points: 1210 },
+    /*  0 */ { id: 1, name: { first: "Alicja", last: "Nowak" }, age: 30, points: 1420, level: 10 },
+    /*  1 */ { id: 3, name: { first: "Wojciech", last: "Kowalski" }, age: 40, points: 1312 },
+    /*  2 */ { id: 5, name: { first: "Maciej", last: "Nowak" }, age: 55, points: 1210 },
+    /*  3 */ { id: 7, name: { first: "Ewa", last: "Wieczorek" }, age: 28, points: 850 },
+    /*  4 */ { id: 9, name: { first: "Anna", last: "Sobczak" }, age: 31, points: 980 },
+    /*  5 */ { id: 11, name: { first: "Nadzieja", last: "Dudek" }, age: 22, points: 1312 },
+    /*  6 */ { id: 13, name: { first: "Piotr", last: "Dudek" }, age: 25, points: 1515 },
+    /*  7 */ { id: 15, name: { first: "Bożena", last: "Majewska" }, age: 45, points: 1002 },
+    /*  8 */ { id: 17, name: { first: "Piotr", last: "Nowak" }, age: 15, points: 1500 },
+    /*  9 */ { id: 19, name: { first: "Sławomir", last: "Kowalski" }, age: 29, points: 900, level: 5 },
+    /* 10 */ { id: 21, name: { first: "Radosław", last: "Wieczorek" }, age: 31, points: 1010 },
+    /* 11 */ { id: 23, name: { first: "Anna", last: "Majewska" }, age: 42, points: 1440 },
+    /* 12 */ { id: 25, name: { first: "Maciej", last: "Nowak" }, age: 35, points: 810, level: 2 },
+    /* 13 */ { id: 27, name: { first: "Paweł", last: "Sobczak" }, age: 27, points: 1100 },
+    /* 14 */ { id: 29, name: { first: "Paweł", last: "Nowak" }, age: 38, points: 1210 },
   ] as const satisfies ReadonlyArray<Item>;
 
-  {
-    const tx = db.tx("items", "readwrite");
-    const store = tx.store("items");
-    for (const [index, value] of data.entries()) {
-      // Keys are odd numbers starting from 1
-      store.add(value, index * 2 + 1);
-    }
-    await tx.done;
-  }
+  await db.insert("items", data);
 
-  await t.test("get all", async (t) => {
+  test("get all", async (t) => {
     await t.test("basic", async () => {
-      const tx = db.tx("items", "readonly");
-      deepEqual(await query(tx.store("items"), {}), data);
-      await tx.done;
+      deepEqual(await query(db, "items", {}), data);
     });
 
     await t.test("reversed", async () => {
-      const tx = db.tx("items", "readonly");
-      deepEqual(await query(tx.store("items"), { direction: "prev" }), [...data].reverse());
-      await tx.done;
+      deepEqual(await query(db, "items", { direction: "prev" }), [...data].reverse());
     });
 
     await t.test("with limit", async () => {
-      const tx = db.tx("items", "readonly");
-      deepEqual(await query(tx.store("items"), { limit: 5 }), data.slice(0, 5));
-      await tx.done;
+      deepEqual(await query(db, "items", { limit: 5 }), data.slice(0, 5));
     });
 
     await t.test("with limit reversed", async () => {
-      const tx = db.tx("items", "readonly");
-      deepEqual(await query(tx.store("items"), { limit: 5, direction: "prev" }), data.toReversed().slice(0, 5));
-      await tx.done;
+      deepEqual(await query(db, "items", { limit: 5, direction: "prev" }), data.toReversed().slice(0, 5));
     });
   });
 
-  await t.test("get all ordered", async (t) => {
+  test("get all ordered", async (t) => {
     await t.test("basic", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), { orderBy: "name.first" }),
+        await query(db, "items", { orderBy: "name.first" }),
         data.toSorted((a, b) => a.name.first.localeCompare(b.name.first)),
       );
-      await tx.done;
     });
 
     await t.test("reversed", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), { orderBy: "name.first", direction: "prev" }),
+        await query(db, "items", { orderBy: "name.first", direction: "prev" }),
         data.toSorted((a, b) => a.name.first.localeCompare(b.name.first)).reverse(),
       );
-      await tx.done;
     });
 
     await t.test("with limit", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), { orderBy: "name.first", limit: 5 }),
+        await query(db, "items", { orderBy: "name.first", limit: 5 }),
         data.toSorted((a, b) => a.name.first.localeCompare(b.name.first)).slice(0, 5),
       );
-      await tx.done;
     });
 
     await t.test("with limit reversed", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), { orderBy: "name.first", limit: 5, direction: "prev" }),
+        await query(db, "items", { orderBy: "name.first", limit: 5, direction: "prev" }),
         data
           .toSorted((a, b) => a.name.first.localeCompare(b.name.first))
           .reverse()
           .slice(0, 5),
       );
-      await tx.done;
     });
 
     await t.test("with missing index for order field throws", async () => {
-      const tx = db.tx("items", "readonly");
       await rejects(
         () =>
-          query(tx.store("items"), {
+          query(db, "items", {
             orderBy: "age",
           }),
         { message: "Missing index on age." },
       );
-      await tx.done;
     });
   });
 
-  await t.test("get by key equality", async (t) => {
+  test("get by key equality", async (t) => {
     await t.test("basic", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { [primaryKey]: KeyRange.only(1) },
         }),
         [data[0]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { [primaryKey]: KeyRange.only(15) },
         }),
         [data[7]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { [primaryKey]: KeyRange.only(10) },
         }),
         [],
       );
-      await tx.done;
     });
 
     await t.test("reversed", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { [primaryKey]: KeyRange.only(1) },
           direction: "prev",
         }),
         [data[0]],
       );
-      await tx.done;
     });
 
     await t.test("with limit", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { [primaryKey]: KeyRange.only(3) },
           limit: 1,
         }),
         [data[1]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { [primaryKey]: KeyRange.only(5) },
           limit: 0,
         }),
@@ -193,29 +163,26 @@ test("simple store query", async (t) => {
     });
 
     await t.test("with order", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { [primaryKey]: KeyRange.only(7) },
           orderBy: "points",
         }),
         [data[3]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { [primaryKey]: KeyRange.only(9) },
           orderBy: "name.first",
           direction: "prev",
         }),
         [data[4]],
       );
-      await tx.done;
     });
 
     await t.test("with other filters", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             [primaryKey]: KeyRange.only(1),
             "name.first": KeyRange.only("Alicja"),
@@ -224,7 +191,7 @@ test("simple store query", async (t) => {
         [data[0]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             [primaryKey]: KeyRange.only(1),
             "name.first": KeyRange.only("Nobody"),
@@ -232,93 +199,81 @@ test("simple store query", async (t) => {
         }),
         [],
       );
-      await tx.done;
     });
   });
 
-  await t.test("get by key range", async (t) => {
+  test("get by key range", async (t) => {
     await t.test("basic", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { [primaryKey]: KeyRange.bound(9, 13) },
         }),
         [data[4], data[5], data[6]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { [primaryKey]: KeyRange.upperBound(5) },
         }),
         [data[0], data[1], data[2]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { [primaryKey]: KeyRange.lowerBound(25, true) },
         }),
         [data[13], data[14]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { [primaryKey]: KeyRange.lowerBound(999) },
         }),
         [],
       );
-      await tx.done;
     });
 
     await t.test("reversed", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { [primaryKey]: KeyRange.bound(13, 17) },
           direction: "prev",
         }),
         [data[8], data[7], data[6]],
       );
-      await tx.done;
     });
 
     await t.test("with limit", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { [primaryKey]: KeyRange.bound(3, 12) },
           limit: 3,
         }),
         [data[1], data[2], data[3]],
       );
-      await tx.done;
     });
 
     await t.test("with limit reversed", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { [primaryKey]: KeyRange.bound(4, 16) },
           limit: 2,
           direction: "prev",
         }),
         [data[7], data[6]],
       );
-      await tx.done;
     });
 
     await t.test("with order", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { [primaryKey]: KeyRange.bound(3, 12) },
           orderBy: "name.first",
         }),
         [data[4], data[3], data[2], data[5], data[1]],
       );
-      await tx.done;
     });
 
     await t.test("with field range filter", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             [primaryKey]: KeyRange.bound(3, 12),
             "name.first": KeyRange.bound("A", "M"),
@@ -326,192 +281,164 @@ test("simple store query", async (t) => {
         }),
         [data[4], data[3]],
       );
-      await tx.done;
     });
   });
 
-  await t.test("get by field equality", async (t) => {
+  test("get by field equality", async (t) => {
     await t.test("basic", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { "name.first": KeyRange.only("Piotr") },
         }),
         [data[6], data[8]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { "name.last": KeyRange.only("Nowak") },
         }),
         [data[0], data[2], data[8], data[12], data[14]],
       );
-      await tx.done;
     });
 
     await t.test("reversed", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { "name.first": KeyRange.only("Piotr") },
           direction: "prev",
         }),
         [data[8], data[6]],
       );
-      await tx.done;
     });
 
     await t.test("with matching order", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { "name.first": KeyRange.only("Piotr") },
           orderBy: "name.first",
         }),
         [data[6], data[8]],
       );
-      await tx.done;
     });
 
     await t.test("with non-matching order", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { "name.last": KeyRange.only("Nowak") },
           orderBy: "name.first",
         }),
         [data[0], data[2], data[12], data[14], data[8]],
       );
-      await tx.done;
     });
 
     await t.test("with limit", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { "name.last": KeyRange.only("Nowak") },
           limit: 3,
         }),
         [data[0], data[2], data[8]],
       );
-      await tx.done;
     });
 
     await t.test("with missing index for filter field throws", async () => {
-      const tx = db.tx("items", "readonly");
       await rejects(
         () =>
-          query(tx.store("items"), {
+          query(db, "items", {
             where: { level: KeyRange.only(5) },
           }),
         { message: "Missing index on level." },
       );
-      await tx.done;
     });
 
     await t.test("with missing index for order field throws", async () => {
-      const tx = db.tx("items", "readonly");
       await rejects(
         () =>
-          query(tx.store("items"), {
+          query(db, "items", {
             where: { age: KeyRange.only(30) },
             orderBy: "points",
           }),
         { message: "Missing index on age+points." },
       );
-      await tx.done;
     });
 
     await t.test("will use index with extra fields", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { age: KeyRange.only(31) },
         }),
         [data[4], data[10]],
       );
-      await tx.done;
     });
   });
 
-  await t.test("get by field range", async (t) => {
+  test("get by field range", async (t) => {
     await t.test("basic", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { "name.first": KeyRange.bound("P", "S\uffff") },
         }),
         [data[13], data[14], data[6], data[8], data[10], data[9]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { "name.last": KeyRange.lowerBound("P", true) },
         }),
         [data[4], data[13], data[3], data[10]],
       );
-      await tx.done;
     });
 
     await t.test("reversed", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { "name.first": KeyRange.bound("P", "S\uffff") },
           direction: "prev",
         }),
         [data[9], data[10], data[8], data[6], data[14], data[13]],
       );
-      await tx.done;
     });
 
     await t.test("with matching order ", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { "name.first": KeyRange.upperBound("B\uffff") },
           orderBy: "name.first",
         }),
         [data[0], data[4], data[11], data[7]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { "name.first": KeyRange.bound("P", "S\uffff") },
           orderBy: "name.first",
           direction: "prev",
         }),
         [data[9], data[10], data[8], data[6], data[14], data[13]],
       );
-      await tx.done;
     });
 
     await t.test("with non-matching order", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { "name.last": KeyRange.bound("A", "M\uffff") },
           orderBy: "name.first",
         }),
         [data[11], data[7], data[5], data[6], data[9], data[1]],
       );
-      await tx.done;
     });
 
     await t.test("with limit", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { "name.first": KeyRange.bound("A", "M\uffff") },
           orderBy: "name.first",
           limit: 2,
         }),
         [data[0], data[4]],
       );
-      await tx.done;
     });
 
     await t.test("with limit reversed", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { "name.last": KeyRange.bound("A", "M\uffff") },
           limit: 2,
           direction: "prev",
@@ -519,7 +446,7 @@ test("simple store query", async (t) => {
         [data[11], data[7]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: { "name.first": KeyRange.bound("A", "M\uffff") },
           orderBy: "name.first",
           direction: "prev",
@@ -527,40 +454,34 @@ test("simple store query", async (t) => {
         }),
         [data[12], data[2]],
       );
-      await tx.done;
     });
 
     await t.test("with missing index for filter field throws", async () => {
-      const tx = db.tx("items", "readonly");
       await rejects(
         () =>
-          query(tx.store("items"), {
+          query(db, "items", {
             where: { level: KeyRange.lowerBound(3, true) },
           }),
         { message: "Missing index on level." },
       );
-      await tx.done;
     });
 
     await t.test("with missing index for order field throws", async () => {
-      const tx = db.tx("items", "readonly");
       await rejects(
         () =>
-          query(tx.store("items"), {
+          query(db, "items", {
             where: { age: KeyRange.bound(30, 40) },
             orderBy: "points",
           }),
         { message: "Missing index on points+age." },
       );
-      await tx.done;
     });
   });
 
-  await t.test("get by multi field equality", async (t) => {
+  test("get by multi field equality", async (t) => {
     await t.test("basic", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Maciej"),
             "name.last": KeyRange.only("Nowak"),
@@ -569,7 +490,7 @@ test("simple store query", async (t) => {
         [data[2], data[12]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Maciej"),
             "name.last": KeyRange.only("Nowak"),
@@ -579,7 +500,7 @@ test("simple store query", async (t) => {
         [data[12]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Piotr"),
             "name.last": KeyRange.only("Kowalski"),
@@ -587,13 +508,11 @@ test("simple store query", async (t) => {
         }),
         [],
       );
-      await tx.done;
     });
 
     await t.test("reversed", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Maciej"),
             "name.last": KeyRange.only("Nowak"),
@@ -602,13 +521,11 @@ test("simple store query", async (t) => {
         }),
         [data[12], data[2]],
       );
-      await tx.done;
     });
 
     await t.test("with limit", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Maciej"),
             "name.last": KeyRange.only("Nowak"),
@@ -617,14 +534,12 @@ test("simple store query", async (t) => {
         }),
         [data[2]],
       );
-      await tx.done;
     });
 
     await t.test("with missing index for filter field throws", async () => {
-      const tx = db.tx("items", "readonly");
       await rejects(
         () =>
-          query(tx.store("items"), {
+          query(db, "items", {
             where: {
               "name.first": KeyRange.only("Maciej"),
               level: KeyRange.only(1),
@@ -632,13 +547,11 @@ test("simple store query", async (t) => {
           }),
         { message: "Missing index on level." },
       );
-      await tx.done;
     });
 
     await t.test("will use index with extra fields", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Maciej"),
             age: KeyRange.only(35),
@@ -646,13 +559,11 @@ test("simple store query", async (t) => {
         }),
         [data[12]],
       );
-      await tx.done;
     });
 
     await t.test("with order", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Maciej"),
             "name.last": KeyRange.only("Nowak"),
@@ -662,7 +573,7 @@ test("simple store query", async (t) => {
         [data[12], data[2]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Maciej"),
             "name.last": KeyRange.only("Nowak"),
@@ -671,13 +582,11 @@ test("simple store query", async (t) => {
         }),
         [data[2], data[12]],
       );
-      await tx.done;
     });
 
     await t.test("with order reversed", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Maciej"),
             "name.last": KeyRange.only("Nowak"),
@@ -687,14 +596,12 @@ test("simple store query", async (t) => {
         }),
         [data[2], data[12]],
       );
-      await tx.done;
     });
 
     await t.test("with missing index for order field throws", async () => {
-      const tx = db.tx("items", "readonly");
       rejects(
         () =>
-          query(tx.store("items"), {
+          query(db, "items", {
             where: {
               "name.first": KeyRange.only("Maciej"),
               "name.last": KeyRange.only("Nowak"),
@@ -703,15 +610,13 @@ test("simple store query", async (t) => {
           }),
         { message: "Missing indices on name.first+level, name.last+level." },
       );
-      await tx.done;
     });
   });
 
-  await t.test("get by multi field equality and range", async (t) => {
+  test("get by multi field equality and range", async (t) => {
     await t.test("basic", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.last": KeyRange.only("Nowak"),
             points: KeyRange.bound(1000, 1450),
@@ -720,7 +625,7 @@ test("simple store query", async (t) => {
         [data[2], data[14], data[0]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Piotr"),
             points: KeyRange.bound(1500, 1515, true),
@@ -729,7 +634,7 @@ test("simple store query", async (t) => {
         [data[6]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.last": KeyRange.only("Nowak"),
             points: KeyRange.lowerBound(1000),
@@ -738,7 +643,7 @@ test("simple store query", async (t) => {
         [data[2], data[14], data[0], data[8]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.last": KeyRange.only("Nowak"),
             points: KeyRange.upperBound(1450),
@@ -747,7 +652,7 @@ test("simple store query", async (t) => {
         [data[12], data[2], data[14], data[0]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Maciej"),
             "name.last": KeyRange.only("Nowak"),
@@ -756,13 +661,11 @@ test("simple store query", async (t) => {
         }),
         [data[12], data[2]],
       );
-      await tx.done;
     });
 
     await t.test("reversed", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.last": KeyRange.only("Nowak"),
             points: KeyRange.bound(1000, 1450),
@@ -772,7 +675,7 @@ test("simple store query", async (t) => {
         [data[0], data[14], data[2]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Maciej"),
             "name.last": KeyRange.only("Nowak"),
@@ -782,13 +685,11 @@ test("simple store query", async (t) => {
         }),
         [data[2], data[12]],
       );
-      await tx.done;
     });
 
     await t.test("with limit", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.last": KeyRange.only("Nowak"),
             points: KeyRange.bound(1000, 1450),
@@ -798,7 +699,7 @@ test("simple store query", async (t) => {
         [data[2], data[14]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Maciej"),
             "name.last": KeyRange.only("Nowak"),
@@ -809,13 +710,11 @@ test("simple store query", async (t) => {
         }),
         [data[2]],
       );
-      await tx.done;
     });
 
     await t.test("with multiple ranges", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Piotr"),
             "name.last": KeyRange.bound("B", "Y\uffff"),
@@ -825,7 +724,7 @@ test("simple store query", async (t) => {
         [data[6], data[8]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Piotr"),
             "name.last": KeyRange.bound("B", "Y\uffff"),
@@ -834,14 +733,12 @@ test("simple store query", async (t) => {
         }),
         [data[8]],
       );
-      await tx.done;
     });
 
     await t.test("with missing index for filter field throws", async () => {
-      const tx = db.tx("items", "readonly");
       await rejects(
         () =>
-          query(tx.store("items"), {
+          query(db, "items", {
             where: {
               "name.last": KeyRange.only("Nowak"),
               level: KeyRange.bound(0, 100),
@@ -851,7 +748,7 @@ test("simple store query", async (t) => {
       );
       await rejects(
         () =>
-          query(tx.store("items"), {
+          query(db, "items", {
             where: {
               "name.first": KeyRange.only("Maciej"),
               "name.last": KeyRange.only("Nowak"),
@@ -862,7 +759,7 @@ test("simple store query", async (t) => {
       );
       await rejects(
         () =>
-          query(tx.store("items"), {
+          query(db, "items", {
             where: {
               level: KeyRange.only(1),
               age: KeyRange.bound(0, 100),
@@ -872,7 +769,7 @@ test("simple store query", async (t) => {
       );
       await rejects(
         () =>
-          query(tx.store("items"), {
+          query(db, "items", {
             where: {
               "name.last": KeyRange.only("Nowak"),
               points: KeyRange.bound(1000, 1450),
@@ -881,14 +778,11 @@ test("simple store query", async (t) => {
           }),
         { message: "Missing index on name.last+age+points." },
       );
-      await tx.done;
     });
 
     await t.test("with matching order", async () => {
-      const tx = db.tx("items", "readonly");
-
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.last": KeyRange.only("Nowak"),
             points: KeyRange.upperBound(1450),
@@ -898,7 +792,7 @@ test("simple store query", async (t) => {
         [data[12], data[2], data[14], data[0]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Maciej"),
             "name.last": KeyRange.only("Nowak"),
@@ -909,13 +803,11 @@ test("simple store query", async (t) => {
         }),
         [data[2], data[12]],
       );
-      await tx.done;
     });
 
     await t.test("with non-matching order", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Maciej"),
             age: KeyRange.bound(35, 55),
@@ -925,7 +817,7 @@ test("simple store query", async (t) => {
         [data[12], data[2]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.only("Maciej"),
             age: KeyRange.upperBound(55, true),
@@ -934,15 +826,13 @@ test("simple store query", async (t) => {
         }),
         [data[12]],
       );
-      await tx.done;
     });
   });
 
-  await t.test("get by multi field range", async (t) => {
+  test("get by multi field range", async (t) => {
     await t.test("basic", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.upperBound("P\uffff"),
             "name.last": KeyRange.bound("E", "R\uffff"),
@@ -951,7 +841,7 @@ test("simple store query", async (t) => {
         [data[0], data[11], data[7], data[2], data[12], data[14], data[8]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.bound("D", "P\uffff"),
             "name.last": KeyRange.bound("E", "R\uffff"),
@@ -960,7 +850,7 @@ test("simple store query", async (t) => {
         [data[2], data[12], data[14], data[8]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.bound("D", "P\uffff"),
             "name.last": KeyRange.bound("E", "R\uffff"),
@@ -970,7 +860,7 @@ test("simple store query", async (t) => {
         [data[12], data[14]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.bound("D", "P\uffff"),
             "name.last": KeyRange.bound("E", "R\uffff"),
@@ -980,7 +870,7 @@ test("simple store query", async (t) => {
         [data[14]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.bound("D", "P\uffff"),
             "name.last": KeyRange.bound("E", "R\uffff"),
@@ -989,13 +879,11 @@ test("simple store query", async (t) => {
         }),
         [data[12]],
       );
-      await tx.done;
     });
 
     await t.test("reversed", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.upperBound("P\uffff"),
             "name.last": KeyRange.bound("E", "R\uffff"),
@@ -1005,7 +893,7 @@ test("simple store query", async (t) => {
         [data[8], data[14], data[12], data[2], data[7], data[11], data[0]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.bound("D", "P\uffff"),
             "name.last": KeyRange.bound("E", "R\uffff"),
@@ -1015,13 +903,11 @@ test("simple store query", async (t) => {
         }),
         [data[14], data[12]],
       );
-      await tx.done;
     });
 
     await t.test("with matching order", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.upperBound("P\uffff"),
             "name.last": KeyRange.bound("E", "R\uffff"),
@@ -1031,7 +917,7 @@ test("simple store query", async (t) => {
         [data[0], data[11], data[7], data[2], data[12], data[14], data[8]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.upperBound("P\uffff"),
             "name.last": KeyRange.bound("E", "R\uffff"),
@@ -1041,7 +927,7 @@ test("simple store query", async (t) => {
         [data[11], data[7], data[0], data[2], data[12], data[14], data[8]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.bound("D", "P\uffff"),
             "name.last": KeyRange.bound("E", "R\uffff"),
@@ -1052,7 +938,7 @@ test("simple store query", async (t) => {
         [data[12], data[14]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.last": KeyRange.bound("E", "R\uffff"),
             age: KeyRange.bound(30, 40, true),
@@ -1062,7 +948,7 @@ test("simple store query", async (t) => {
         [data[12], data[14], data[1]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.bound("D", "P\uffff"),
             "name.last": KeyRange.bound("E", "R\uffff"),
@@ -1071,13 +957,11 @@ test("simple store query", async (t) => {
         }),
         [data[12], data[2], data[14], data[8]],
       );
-      await tx.done;
     });
 
     await t.test("with non-matching order", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.last": KeyRange.bound("E", "R\uffff"),
             age: KeyRange.bound(30, 40, true, false),
@@ -1086,14 +970,12 @@ test("simple store query", async (t) => {
         }),
         [data[12], data[14], data[1]],
       );
-      await tx.done;
     });
 
     await t.test("on missing index throws", async () => {
-      const tx = db.tx("items", "readonly");
       rejects(
         () =>
-          query(tx.store("items"), {
+          query(db, "items", {
             where: {
               "name.first": KeyRange.upperBound("P\uffff"),
               age: KeyRange.bound(0, 100),
@@ -1104,7 +986,7 @@ test("simple store query", async (t) => {
       );
       rejects(
         () =>
-          query(tx.store("items"), {
+          query(db, "items", {
             where: {
               "name.first": KeyRange.bound("D", "P\uffff"),
               "name.last": KeyRange.bound("E", "R\uffff"),
@@ -1113,15 +995,13 @@ test("simple store query", async (t) => {
           }),
         { message: "Missing index on name.first+name.last+points." },
       );
-      await tx.done;
     });
   });
 
-  await t.test("get by multi field range and key range", async (t) => {
+  test("get by multi field range and key range", async (t) => {
     await t.test("basic", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.upperBound("P\uffff"),
             "name.last": KeyRange.bound("E", "R\uffff"),
@@ -1131,7 +1011,7 @@ test("simple store query", async (t) => {
         [data[11], data[7], data[2], data[8]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.bound("D", "P\uffff"),
             "name.last": KeyRange.bound("E", "R\uffff"),
@@ -1141,7 +1021,7 @@ test("simple store query", async (t) => {
         [data[2], data[12], data[8]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.bound("D", "P\uffff"),
             "name.last": KeyRange.bound("E", "R\uffff"),
@@ -1150,13 +1030,11 @@ test("simple store query", async (t) => {
         }),
         [data[14]],
       );
-      await tx.done;
     });
 
     await t.test("reversed", async () => {
-      const tx = db.tx("items", "readonly");
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.upperBound("P\uffff"),
             "name.last": KeyRange.bound("E", "R\uffff"),
@@ -1167,7 +1045,7 @@ test("simple store query", async (t) => {
         [data[8], data[2], data[7], data[11]],
       );
       deepEqual(
-        await query(tx.store("items"), {
+        await query(db, "items", {
           where: {
             "name.first": KeyRange.bound("D", "P\uffff"),
             "name.last": KeyRange.bound("E", "R\uffff"),
@@ -1177,14 +1055,12 @@ test("simple store query", async (t) => {
         }),
         [data[8], data[12], data[2]],
       );
-      await tx.done;
     });
   });
 
-  await t.test("get by multi field equality and key range", async () => {
-    const tx = db.tx("items", "readonly");
+  test("get by multi field equality and key range", async () => {
     deepEqual(
-      await query(tx.store("items"), {
+      await query(db, "items", {
         where: {
           "name.first": KeyRange.only("Maciej"),
           "name.last": KeyRange.only("Nowak"),
@@ -1194,7 +1070,7 @@ test("simple store query", async (t) => {
       [data[2]],
     );
     deepEqual(
-      await query(tx.store("items"), {
+      await query(db, "items", {
         where: {
           "name.first": KeyRange.only("Maciej"),
           "name.last": KeyRange.only("Nowak"),
@@ -1204,7 +1080,7 @@ test("simple store query", async (t) => {
       [data[2], data[12]],
     );
     deepEqual(
-      await query(tx.store("items"), {
+      await query(db, "items", {
         where: {
           "name.first": KeyRange.only("Maciej"),
           "name.last": KeyRange.only("Nowak"),
@@ -1214,8 +1090,9 @@ test("simple store query", async (t) => {
       }),
       [data[12], data[2]],
     );
-    await tx.done;
   });
 
-  db.close();
+  after(() => {
+    db.idb.close();
+  });
 });

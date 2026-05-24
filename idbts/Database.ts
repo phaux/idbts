@@ -1,10 +1,9 @@
-import type { Observable } from "observable-polyfill/fn";
-import type { IndexKey } from "./DBIndex.ts";
-import type { AnyStoreSchema, DBStore, StoreInputKey, StoreOutputKey } from "./DBStore.ts";
-import { DBTransaction, type DBTransactionMode } from "./DBTransaction.ts";
-import type { KeyRange, MaybeKeyRange } from "./KeyRange.ts";
-import type { SchemaValue } from "./StandardSchema.ts";
-import type { MaybeArray, OptionalArg, ToArray } from "./typeUtils.ts";
+import { sendDBChanges } from "./changesChannel.ts";
+import { getValueByKeyPath } from "./getValueByKeyPath.ts";
+import { idbReqToPromise } from "./idbReqToPromise.ts";
+import type { ValidKey } from "./KeyRange.ts";
+import type { SchemaValue, StandardSchema } from "./StandardSchema.ts";
+import type { ValuesAtPaths } from "./ValuesAtPaths.ts";
 
 /**
  * A schema for a {@link Database}.
@@ -14,244 +13,172 @@ import type { MaybeArray, OptionalArg, ToArray } from "./typeUtils.ts";
 export type AnyDatabaseSchema = Record<string, AnyStoreSchema>;
 
 /**
- * A wrapper for {@link IDBDatabase} with more strict types.
+ * A schema for a {@link Database} store.
+ */
+export interface AnyStoreSchema {
+  /**
+   * The schema of the value.
+   *
+   * This can be any StandardSchema-compatible schema.
+   * Use {@link schema} to create a noop schema.
+   */
+  value: StandardSchema<object>;
+
+  /**
+   * The primary key path of the store.
+   *
+   * Used to infer the type of the primary key based on the store value.
+   *
+   * @see {@link ValuesAtPaths}
+   */
+  keyPath: string | readonly string[];
+
+  /**
+   * The schemas of the indexes.
+   *
+   * This is a map of index names to their schemas.
+   */
+  indexes?: Record<string, AnyIndexSchema> | undefined;
+}
+
+/**
+ * A schema for an index of a store.
+ */
+export interface AnyIndexSchema {
+  /**
+   * The key path of the index.
+   *
+   * Used to infer the type of the index key based on the store value.
+   *
+   * @see {@link ValuesAtPaths}
+   */
+  keyPath: string | readonly string[];
+
+  /**
+   * Whether the index is multi-entry.
+   *
+   * If true and the indexed value is an array, each value in the array is indexed separately.
+   * In this case, the inferred index key type is flattened if it is an array.
+   */
+  multiEntry?: boolean | undefined;
+
+  /**
+   * Whether the index is unique.
+   *
+   * If true, the index will only allow unique values.
+   */
+  unique?: boolean | undefined;
+}
+
+/**
+ * A wrapper for {@link IDBDatabase}.
  */
 export class Database<const Schema extends AnyDatabaseSchema> {
-  #db: IDBDatabase;
-
-  constructor(db: IDBDatabase) {
-    this.#db = db;
-  }
-
   /**
-   * The name of the database.
-   *
-   * @see {@link IDBDatabase.name}
+   * The wrapped {@link IDBDatabase}.
    */
-  get name(): string {
-    return this.#db.name;
+  readonly idb: IDBDatabase;
+
+  constructor(idb: IDBDatabase) {
+    this.idb = idb;
   }
 
   /**
-   * The names of the object stores in the database.
+   * The List of the names of the object stores in the database.
    *
    * @see {@link IDBDatabase.objectStoreNames}
    */
-  get storeNames(): DOMStringList {
-    return this.#db.objectStoreNames;
+  get storeNames(): Readonly<ArrayLike<keyof Schema & string>> {
+    return this.idb.objectStoreNames;
   }
 
   /**
-   * Opens a transaction on the specified object stores.
-   *
-   * @see {@link IDBDatabase.transaction}
+   * Retrieves an object from the store.
    */
-  tx<const StoreNames extends MaybeArray<keyof Schema & string>, const Mode extends DBTransactionMode = "readonly">(
-    storeNames: StoreNames,
-    mode?: Mode,
-    options?: IDBTransactionOptions,
-  ): DBTransaction<Schema, ToArray<StoreNames>, Mode> {
-    return new DBTransaction(this.#db.transaction(storeNames as string | string[], mode, options));
-  }
-
-  /**
-   * Adds a new record to the object store.
-   *
-   * It's a shortcut for creating a transaction and calling {@link DBStore.add}.
-   */
-  async add<const StoreName extends keyof Schema & string>(
+  async get<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    value: SchemaValue<Schema[StoreName]["value"]>,
-    ...[key]: OptionalArg<StoreInputKey<Schema[StoreName]>>
-  ): Promise<StoreOutputKey<Schema[StoreName]>> {
-    const tx = this.tx([storeName], "readwrite");
-    const store = tx.store();
-    const newKey = await store.add(value, key as any);
-    await tx.done;
-    return newKey;
+    key: StoreKey<Schema[StoreName]>,
+  ): Promise<SchemaValue<Schema[StoreName]["value"]> | undefined> {
+    const tx = this.idb.transaction(storeName, "readonly");
+    const store = tx.objectStore(storeName);
+    return await idbReqToPromise(store.get(key as IDBValidKey));
   }
 
   /**
-   * Adds or replaces a record in the object store.
-   *
-   * It's a shortcut for creating a transaction and calling {@link DBStore.put}.
+   * Retrieves all objects from the store.
    */
-  async put<const StoreName extends keyof Schema & string>(
+  async getAll<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    value: SchemaValue<Schema[StoreName]["value"]>,
-    ...[key]: OptionalArg<StoreInputKey<Schema[StoreName]>>
-  ): Promise<StoreOutputKey<Schema[StoreName]>> {
-    const tx = this.tx([storeName], "readwrite");
-    const store = tx.store();
-    const newKey = await store.put(value, key as any);
-    await tx.done;
-    return newKey;
-  }
-
-  /**
-   * Retrieves a record from the object store by its key.
-   *
-   * It's a shortcut for creating a transaction and calling {@link DBStore.get}.
-   */
-  get<const StoreName extends keyof Schema & string>(
-    storeName: StoreName,
-    key: StoreOutputKey<Schema[StoreName]>,
-  ): Promise<SchemaValue<Schema[StoreName]["value"]>> {
-    return this.tx([storeName])
-      .store()
-      .get(key as any);
-  }
-
-  /**
-   * Retrieves a range of records from the object store by their keys.
-   *
-   * It's a shortcut for creating a transaction and calling {@link DBStore.getAll}.
-   */
-  getAll<const StoreName extends keyof Schema & string>(
-    storeName: StoreName,
-    range?: KeyRange<StoreOutputKey<Schema[StoreName]>> | null,
   ): Promise<SchemaValue<Schema[StoreName]["value"]>[]> {
-    return this.tx([storeName])
-      .store()
-      .getAll(range as any);
+    const tx = this.idb.transaction(storeName, "readonly");
+    const store = tx.objectStore(storeName);
+    return await idbReqToPromise(store.getAll());
   }
 
   /**
-   * Retrieves a range of records from the object store by index.
+   * Inserts a new object or objects into the store.
+   */
+  async insert<const StoreName extends keyof Schema & string>(
+    storeName: StoreName,
+    values: SchemaValue<Schema[StoreName]["value"]> | readonly SchemaValue<Schema[StoreName]["value"]>[],
+  ): Promise<void> {
+    const tx = this.idb.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    const valuesArray = Array.isArray(values) ? values : [values];
+    try {
+      const addPromises = valuesArray.map((value) => idbReqToPromise(store.add(value)));
+      await Promise.all(addPromises);
+      sendDBChanges(
+        this.idb.name,
+        storeName,
+        valuesArray.map((value) => ({ new: value })),
+      );
+    } catch (error) {
+      tx.abort();
+      throw error;
+    }
+  }
+
+  /**
+   * Updates an object in the store using the provided updater function.
    *
-   * It's a shortcut for creating a transaction and calling {@link TIDBIndex.getAll}.
+   * Updater receives undefined if the object doesn't exist.
+   *
+   * @throws {DOMException} If the updater tries to change the object's primary key.
    */
-  getAllBy<
-    const StoreName extends keyof Schema & string,
-    const IndexName extends keyof Schema[StoreName]["indexes"] & string,
-  >(
+  async update<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    indexName: IndexName,
-    range?: KeyRange<IndexKey<Schema[StoreName], IndexName>> | null,
-  ): Promise<SchemaValue<Schema[StoreName]["value"]>[]> {
-    return this.tx([storeName])
-      .store()
-      .index(indexName)
-      .getAll(range as any);
+    key: StoreKey<Schema[StoreName]>,
+    updater: (
+      value: Readonly<SchemaValue<Schema[StoreName]["value"]>> | undefined,
+    ) => Readonly<SchemaValue<Schema[StoreName]["value"]>>,
+  ): Promise<void> {
+    const tx = this.idb.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    const oldValue = await idbReqToPromise(store.get(key as IDBValidKey));
+    const newValue = updater(oldValue);
+    if (indexedDB.cmp(getValueByKeyPath(newValue, store.keyPath!), key) !== 0) {
+      throw new DOMException("Updater cannot change the primary key.", "InvalidStateError");
+    }
+    await idbReqToPromise(store.put(newValue));
+    sendDBChanges(this.idb.name, storeName, [{ old: oldValue, new: newValue }]);
   }
 
   /**
-   * Watches a single record in the object store.
-   */
-  watch<const StoreName extends keyof Schema & string>(
-    storeName: StoreName,
-    key: StoreOutputKey<Schema[StoreName]>,
-  ): Observable<SchemaValue<Schema[StoreName]["value"]> | undefined> {
-    const O = (globalThis as any).Observable as typeof Observable;
-    return new O((subscriber) => {
-      const chan = this.#getChannel(storeName);
-      const reload = (e?: MessageEvent<IDBValidKey>) => {
-        if (e?.data == null || indexedDB.cmp(e.data, key) === 0) {
-          this.get(storeName, key).then(
-            (v) => subscriber.next(v),
-            (e) => subscriber.error(e),
-          );
-        }
-      };
-      chan.addEventListener("message", reload);
-      reload();
-      subscriber.addTeardown(() => {
-        chan.removeEventListener("message", reload);
-        chan.close();
-      });
-    });
-  }
-
-  /**
-   * Watches a range of records in the object store.
-   */
-  watchAll<const StoreName extends keyof Schema & string>(
-    storeName: StoreName,
-    range?: KeyRange<StoreOutputKey<Schema[StoreName]>> | null,
-  ): Observable<SchemaValue<Schema[StoreName]["value"]>[]> {
-    const O = (globalThis as any).Observable as typeof Observable;
-    return new O((subscriber) => {
-      const chan = this.#getChannel(storeName);
-      const reload = (e?: MessageEvent<IDBValidKey>) => {
-        if (e?.data == null || range == null || range.includes(e.data)) {
-          this.getAll(storeName, range).then(
-            (v) => subscriber.next(v),
-            (e) => subscriber.error(e),
-          );
-        }
-      };
-      chan.addEventListener("message", reload);
-      reload();
-      subscriber.addTeardown(() => {
-        chan.removeEventListener("message", reload);
-        chan.close();
-      });
-    });
-  }
-
-  /**
-   * Watches a range of records in the object store by index.
-   */
-  watchAllBy<
-    const StoreName extends keyof Schema & string,
-    const IndexName extends keyof Schema[StoreName]["indexes"] & string,
-  >(
-    storeName: StoreName,
-    indexName: IndexName,
-    range?: KeyRange<IndexKey<Schema[StoreName], IndexName>> | null,
-  ): Observable<SchemaValue<Schema[StoreName]["value"]>[]> {
-    const O = (globalThis as any).Observable as typeof Observable;
-    return new O((subscriber) => {
-      const chan = this.#getChannel(storeName);
-      const reload = () => {
-        this.getAllBy(storeName, indexName, range).then(
-          (v) => subscriber.next(v),
-          (e) => subscriber.error(e),
-        );
-      };
-      chan.addEventListener("message", reload);
-      reload();
-      subscriber.addTeardown(() => {
-        chan.removeEventListener("message", reload);
-        chan.close();
-      });
-    });
-  }
-
-  /**
-   * Deletes a record or a range of records from the object store.
+   * Deletes an object from the store.
+   *
+   * Does nothing if there is no object matching the primary key.
    */
   async delete<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    key: MaybeKeyRange<StoreOutputKey<Schema[StoreName]>>,
+    key: StoreKey<Schema[StoreName]>,
   ): Promise<void> {
-    const tx = this.tx([storeName], "readwrite");
-    const store = tx.store();
-    await store.delete(key as any);
-    await tx.done;
-  }
-
-  /**
-   * Deletes all records from the object store.
-   */
-  async clear<const StoreName extends keyof Schema & string>(storeName: StoreName): Promise<void> {
-    const tx = this.tx([storeName], "readwrite");
-    const store = tx.store();
-    await store.clear();
-    await tx.done;
-  }
-
-  /**
-   * Closes the database connection.
-   *
-   * @see {@link IDBDatabase.close}
-   */
-  close(): void {
-    this.#db.close();
-  }
-
-  #getChannel(storeName: string) {
-    return new BroadcastChannel(`${this.name}-${storeName}`);
+    const tx = this.idb.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    const oldValue = await idbReqToPromise(store.get(key as IDBValidKey));
+    if (oldValue == null) return;
+    await idbReqToPromise(store.delete(key as IDBValidKey));
+    sendDBChanges(this.idb.name, storeName, [{ old: oldValue }]);
   }
 }
 
@@ -259,3 +186,30 @@ export class Database<const Schema extends AnyDatabaseSchema> {
  * Extracts the schema of a {@link Database}.
  */
 export type DatabaseSchemaOf<T extends Database<AnyDatabaseSchema>> = T extends Database<infer Schema> ? Schema : never;
+
+/**
+ * Infer a key type retrieved from the object store based on the store schema.
+ *
+ * It can be either the defined key type, auto-incrementing number, or a type at the specified key path.
+ */
+export type StoreKey<Schema extends AnyStoreSchema> = ValuesAtPaths<SchemaValue<Schema["value"]>, Schema["keyPath"]>;
+
+/**
+ * Infer a key type for retrieving from the index based on the store schema.
+ *
+ * It is the type of the value at the specified key path.
+ * Additionally, if the index is multi-entry, the key type is flattened if it is an array.
+ */
+export type IndexKey<
+  StoreSchema extends AnyStoreSchema,
+  IndexName extends keyof StoreSchema["indexes"] & string,
+> = StoreSchema["indexes"] extends {}
+  ? ValuesAtPaths<
+      SchemaValue<StoreSchema["value"]>,
+      StoreSchema["indexes"][IndexName]["keyPath"]
+    > extends infer Key extends ValidKey
+    ? StoreSchema["indexes"][IndexName]["multiEntry"] extends true
+      ? FlatArray<Key, 1>
+      : Key
+    : never
+  : never;
