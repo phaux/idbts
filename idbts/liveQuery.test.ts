@@ -1,14 +1,14 @@
-import "fake-indexeddb/auto";
-import "observable-polyfill";
-
 import { deepEqual, equal } from "node:assert/strict";
 import { suite, test } from "node:test";
-import { KeyRange, openDB, primaryKey, schema } from "./index.ts";
+import { KeyRange } from "./KeyRange.ts";
 import { liveQuery } from "./liveQuery.ts";
 import type { MiniObservable } from "./MiniObservable.ts";
+import { openDB } from "./openDB.ts";
+import { primaryKey } from "./query.ts";
+import { schema } from "./StandardSchema.ts";
 
 suite("liveQuery", { concurrency: true }, async () => {
-  test("buffers changes until initial query resolves", async (t) => {
+  test("buffers changes until initial query resolves", async () => {
     const db = await openDB("live-query-buffering", 1, {
       items: {
         value: schema<{ id: number }>(),
@@ -21,7 +21,7 @@ suite("liveQuery", { concurrency: true }, async () => {
     mutations.push(db.insert("items", { id: 2 }));
     const changes = collect(liveQuery(db, "items", {}), ac.signal);
     mutations.push(db.insert("items", { id: 3 }));
-    await delay(250);
+    await new Promise((resolve) => setTimeout(resolve, 250));
     ac.abort();
     await Promise.all(mutations);
     deepEqual((await changes).at(-1), [{ id: 1 }, { id: 2 }, { id: 3 }]);
@@ -43,7 +43,6 @@ suite("liveQuery", { concurrency: true }, async () => {
         const changesPromise = collect(liveQuery(db, "nums", {}), ac.signal);
         await db.insert("nums", [{ n: 1 }, { n: 3 }, { n: 5 }]);
         await db.insert("nums", [{ n: 2 }, { n: 4 }]);
-        await delay();
         ac.abort();
         const changes = await changesPromise;
         deepEqual(changes, [[], [{ n: 1 }, { n: 3 }, { n: 5 }], [{ n: 1 }, { n: 2 }, { n: 3 }, { n: 4 }, { n: 5 }]]);
@@ -57,7 +56,6 @@ suite("liveQuery", { concurrency: true }, async () => {
         const changesPromise = collect(liveQuery(db, "nums", {}), ac.signal);
         await db.update("nums", 2, (value) => ({ n: value!.n, s: "updated" }));
         await db.update("nums", 4, (value) => ({ n: value!.n, s: "updated" }));
-        await delay();
         ac.abort();
         const changes = await changesPromise;
         deepEqual(changes, [
@@ -78,7 +76,6 @@ suite("liveQuery", { concurrency: true }, async () => {
         const changesPromise = collect(liveQuery(db, "nums", {}), ac.signal);
         await db.delete("nums", 2);
         await db.delete("nums", 4);
-        await delay();
         ac.abort();
         const changes = await changesPromise;
         deepEqual(changes, [
@@ -107,7 +104,6 @@ suite("liveQuery", { concurrency: true }, async () => {
       await db.update("nums", 6, (value) => ({ n: value!.n, s: "updated" }));
       await db.delete("nums", 2);
       await db.delete("nums", 6);
-      await delay();
       ac.abort();
       const changes = await changesPromise;
       deepEqual(changes, [[{ n: 3 }], [{ n: 2 }, { n: 3 }], [{ n: 2, s: "updated" }, { n: 3 }], [{ n: 3 }]]);
@@ -134,7 +130,6 @@ suite("liveQuery", { concurrency: true }, async () => {
         const changes = collect(liveQuery(db, "points", {}), ac.signal);
         await db.insert("points", { x: 1, y: 1 });
         await db.insert("points", { x: 2, y: 2 });
-        await delay();
         ac.abort();
         deepEqual(await changes, [
           [],
@@ -151,7 +146,6 @@ suite("liveQuery", { concurrency: true }, async () => {
         const changes = collect(liveQuery(db, "points", {}), ac.signal);
         await db.insert("points", { x: 2, y: 1 });
         await db.insert("points", { x: 1, y: 2 });
-        await delay();
         ac.abort();
         deepEqual(await changes, [
           [
@@ -177,7 +171,6 @@ suite("liveQuery", { concurrency: true }, async () => {
         const changes = collect(liveQuery(db, "points", {}), ac.signal);
         await db.update("points", [1, 2], (value) => ({ x: value!.x, y: value!.y, s: "updated" }));
         await db.update("points", [2, 1], (value) => ({ x: value!.x, y: value!.y, s: "updated" }));
-        await delay();
         ac.abort();
         deepEqual(await changes, [
           [
@@ -206,7 +199,6 @@ suite("liveQuery", { concurrency: true }, async () => {
         const changes = collect(liveQuery(db, "points", {}), ac.signal);
         await db.delete("points", [1, 2]);
         await db.delete("points", [2, 1]);
-        await delay();
         ac.abort();
         deepEqual(await changes, [
           [
@@ -250,7 +242,6 @@ suite("liveQuery", { concurrency: true }, async () => {
         const changes = collect(liveQuery(db, "people", { orderBy: "name" }), ac.signal);
         await db.insert("people", { id: 3, name: "Alice", age: 30 });
         await db.insert("people", { id: 2, name: "Charlie", age: 25 });
-        await delay();
         ac.abort();
         deepEqual(await changes, [
           [],
@@ -266,7 +257,6 @@ suite("liveQuery", { concurrency: true }, async () => {
         const ac = new AbortController();
         const changes = collect(liveQuery(db, "people", { orderBy: "name" }), ac.signal);
         await db.insert("people", { id: 1, name: "Bob", age: 35 });
-        await delay();
         ac.abort();
         deepEqual(await changes, [
           [
@@ -285,7 +275,6 @@ suite("liveQuery", { concurrency: true }, async () => {
         const ac = new AbortController();
         const changes = collect(liveQuery(db, "people", { orderBy: "name" }), ac.signal);
         await db.update("people", 1, (value) => ({ ...value!, name: "David" }));
-        await delay();
         ac.abort();
         deepEqual(await changes, [
           [
@@ -305,7 +294,6 @@ suite("liveQuery", { concurrency: true }, async () => {
         const ac = new AbortController();
         const changes = collect(liveQuery(db, "people", { orderBy: "name" }), ac.signal);
         await db.update("people", 2, (value) => ({ ...value!, age: 20 }));
-        await delay();
         ac.abort();
         deepEqual(await changes, [
           [
@@ -325,7 +313,6 @@ suite("liveQuery", { concurrency: true }, async () => {
         const ac = new AbortController();
         const changes = collect(liveQuery(db, "people", { orderBy: "name" }), ac.signal);
         await db.delete("people", 1);
-        await delay();
         ac.abort();
         deepEqual(await changes, [
           [
@@ -347,7 +334,6 @@ suite("liveQuery", { concurrency: true }, async () => {
         const changes = collect(liveQuery(db, "people", { where: { age: KeyRange.lowerBound(25) } }), ac.signal);
         await db.insert("people", { id: 4, name: "Eve", age: 28 });
         await db.delete("people", 4);
-        await delay();
         ac.abort();
         deepEqual(await changes, [
           [{ id: 3, name: "Alice", age: 30 }],
@@ -364,7 +350,6 @@ suite("liveQuery", { concurrency: true }, async () => {
         const changes = collect(liveQuery(db, "people", { where: { age: KeyRange.lowerBound(25) } }), ac.signal);
         await db.insert("people", { id: 5, name: "Frank", age: 22 });
         await db.delete("people", 5);
-        await delay();
         ac.abort();
         deepEqual(await changes, [[{ id: 3, name: "Alice", age: 30 }]]);
       });
@@ -378,7 +363,6 @@ suite("liveQuery", { concurrency: true }, async () => {
         await db.update("people", 3, (value) => ({ ...value!, age: 25 }));
         await db.update("people", 3, (value) => ({ ...value!, age: 15 }));
         await db.update("people", 2, (value) => ({ ...value!, age: 35 }));
-        await delay();
         ac.abort();
         deepEqual(await changes, [
           [{ id: 2, name: "Charlie", age: 20 }],
@@ -404,8 +388,4 @@ function collect<T>(observable: MiniObservable<T>, signal: AbortSignal): Promise
     const results: T[] = [];
     observable.subscribe({ next: (value) => results.push(value) }, { signal }).then(() => resolve(results), reject);
   });
-}
-
-function delay(ms = 50) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

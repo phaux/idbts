@@ -1,9 +1,7 @@
-import "fake-indexeddb/auto";
-import "observable-polyfill";
-
 import { deepEqual, rejects } from "node:assert/strict";
 import { after, suite, test } from "node:test";
-import { KeyRange, openDB, schema } from "./index.ts";
+import { KeyRange, schema } from "./index.ts";
+import { openDB } from "./openDB.ts";
 import { primaryKey, query } from "./query.ts";
 
 suite("query", { concurrency: true }, async () => {

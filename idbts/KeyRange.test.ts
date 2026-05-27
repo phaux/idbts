@@ -1,6 +1,3 @@
-import "fake-indexeddb/auto";
-import "observable-polyfill";
-
 import { expectTypeOf } from "expect-type";
 import { ok } from "node:assert/strict";
 import { test } from "node:test";
