@@ -1,6 +1,5 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import "fake-indexeddb/auto";
-import "observable-polyfill";
 
 if (!GlobalRegistrator.isRegistered) GlobalRegistrator.register();
 

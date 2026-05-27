@@ -14,7 +14,11 @@ test("KeyRange", async (t) => {
     });
 
     await t.test("bound", () => {
-      expectTypeOf(KeyRange.bound<string>).parameters.toEqualTypeOf<[string, string, boolean?, boolean?]>();
+      const type = expectTypeOf(KeyRange.bound<string>);
+      type.parameter(0).toEqualTypeOf<string>();
+      type.parameter(1).toEqualTypeOf<string>();
+      type.parameter(2).toEqualTypeOf<boolean | undefined>();
+      type.parameter(3).toEqualTypeOf<boolean | undefined>();
       const r: KeyRange<string> = KeyRange.bound("m", "n");
       expectTypeOf(r.lower).toEqualTypeOf<string | undefined>();
       expectTypeOf(r.upper).toEqualTypeOf<string | undefined>();
@@ -25,7 +29,9 @@ test("KeyRange", async (t) => {
     });
 
     await t.test("lowerBound", () => {
-      expectTypeOf(KeyRange.lowerBound<string>).parameters.toEqualTypeOf<[string, boolean?]>();
+      const type = expectTypeOf(KeyRange.lowerBound<string>);
+      type.parameter(0).toEqualTypeOf<string>();
+      type.parameter(1).toEqualTypeOf<boolean | undefined>();
       const r: KeyRange<string> = KeyRange.lowerBound("m");
       ok(!r.includes("l"));
       ok(r.includes("m"));
@@ -34,7 +40,9 @@ test("KeyRange", async (t) => {
     });
 
     await t.test("upperBound", () => {
-      expectTypeOf(KeyRange.upperBound<string>).parameters.toEqualTypeOf<[string, boolean?]>();
+      const type = expectTypeOf(KeyRange.upperBound<string>);
+      type.parameter(0).toEqualTypeOf<string>();
+      type.parameter(1).toEqualTypeOf<boolean | undefined>();
       const r: KeyRange<string> = KeyRange.upperBound("n");
       ok(r.includes("l"));
       ok(r.includes("m"));
@@ -57,7 +65,9 @@ test("KeyRange", async (t) => {
 
   await t.test("array key ranges", async (t) => {
     await t.test("only", () => {
-      expectTypeOf(KeyRange.only<readonly [string, number]>).parameters.toEqualTypeOf<[readonly [string, number]]>();
+      expectTypeOf(KeyRange.only<readonly [string, number]>)
+        .parameter(0)
+        .toEqualTypeOf<readonly [string, number]>();
       const r: KeyRange<readonly [string, number]> = KeyRange.only(["m", 1]);
       ok(!r.includes(["l", 1]));
       ok(r.includes(["m", 1]));
@@ -65,9 +75,9 @@ test("KeyRange", async (t) => {
     });
 
     await t.test("bound", () => {
-      expectTypeOf(KeyRange.bound<readonly [string, number]>)
-        .parameter<0 | 1>(0)
-        .toEqualTypeOf<readonly [string, number]>();
+      const type = expectTypeOf(KeyRange.bound<readonly [string, number]>);
+      type.parameter(0).toEqualTypeOf<readonly [string, number]>();
+      type.parameter(1).toEqualTypeOf<readonly [string, number]>();
       const r: KeyRange<readonly [string, number]> = KeyRange.bound(["m", 1], ["n", 2]);
       ok(!r.includes(["m", 0]));
       ok(r.includes(["m", 1]));
