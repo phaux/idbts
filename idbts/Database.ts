@@ -145,6 +145,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
    * Updates an object in the store using the provided updater function.
    *
    * Updater receives undefined if the object doesn't exist.
+   * If the updater returns undefined, the object will be deleted.
    *
    * @throws {DOMException} If the updater tries to change the object's primary key.
    */
@@ -153,16 +154,19 @@ export class Database<const Schema extends AnyDatabaseSchema> {
     key: StoreKey<Schema[StoreName]>,
     updater: (
       value: Readonly<SchemaValue<Schema[StoreName]["value"]>> | undefined,
-    ) => Readonly<SchemaValue<Schema[StoreName]["value"]>>,
+    ) => Readonly<SchemaValue<Schema[StoreName]["value"]>> | undefined,
   ): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
     const oldValue = await idbReqToPromise(store.get(key as IDBValidKey));
     const newValue = updater(oldValue);
-    if (indexedDB.cmp(getValueByKeyPath(newValue, store.keyPath!), key) !== 0) {
-      throw new DOMException("Updater cannot change the primary key.", "InvalidStateError");
+    if (newValue != null) {
+      if (indexedDB.cmp(getValueByKeyPath(newValue, store.keyPath!), key) !== 0)
+        throw new DOMException("Updater cannot change the primary key.", "InvalidStateError");
+      await idbReqToPromise(store.put(newValue));
+    } else if (oldValue != null) {
+      await idbReqToPromise(store.delete(key as IDBValidKey));
     }
-    await idbReqToPromise(store.put(newValue));
     sendDBChanges(this.idb.name, storeName, [{ oldValue: oldValue, newValue: newValue }]);
   }
 

@@ -67,14 +67,20 @@ suite("Database", { concurrency: true }, () => {
     await t.test("update name", async () => {
       const updater = expectTypeOf(db.update<"num2name">).parameter(2);
       updater.parameter(0).toEqualTypeOf<Readonly<NameRecord> | undefined>();
-      updater.returns.toEqualTypeOf<Readonly<NameRecord>>();
+      updater.returns.toEqualTypeOf<Readonly<NameRecord> | undefined>();
       await db.update("num2name", 1, (value) => ({ ...value!, name: value!.name + "!" }));
       deepEqual(await db.get("num2name", 1), { id: 1, name: "foo!" });
     });
 
     await t.test("update can create entry", async () => {
-      await db.update("num2name", 2, (value) => ({ id: 2, name: (value?.name ?? "new") + "!" }));
+      deepEqual(await db.get("num2name", 2), undefined);
+      await db.update("num2name", 2, () => ({ id: 2, name: "new!" }));
       deepEqual(await db.get("num2name", 2), { id: 2, name: "new!" });
+    });
+
+    await t.test("update can delete entry", async () => {
+      await db.update("num2name", 2, () => undefined);
+      deepEqual(await db.get("num2name", 2), undefined);
     });
 
     await t.test("update throws if key changed", async () => {
