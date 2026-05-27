@@ -23,7 +23,10 @@ const CLEANUP_DELAY = 3000; // Time to wait before cleaning up unused observable
  * Calls with the same cache key will reuse the same observable.
  * Cache key must be globally unique.
  */
-export function useSubscribable<T>(getObservable: () => Subscribable<T>, cacheKey: React.DependencyList): T {
+export function useSubscribable<T>(
+  getObservable: () => Subscribable<T>,
+  cacheKey: React.DependencyList,
+): T {
   let observable: Subscribable<T> | undefined;
 
   // Try to find an existing observable for this cache key

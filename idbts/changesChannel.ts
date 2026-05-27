@@ -1,4 +1,8 @@
-export function sendDBChanges<T>(dbName: string, storeName: string, changes: readonly DBChange<T>[]): void {
+export function sendDBChanges<T>(
+  dbName: string,
+  storeName: string,
+  changes: readonly DBChange<T>[],
+): void {
   const chan = getDBChangesChannel(dbName, storeName);
   chan.postMessage(changes);
   chan.close();
@@ -12,11 +16,14 @@ export function getDBChangesChannel<T>(
 }
 
 export interface DBChange<T> {
-  new?: T | undefined;
-  old?: T | undefined;
+  newValue?: T | undefined;
+  oldValue?: T | undefined;
 }
 
-export type TypedBroadcastChannel<T> = Omit<BroadcastChannel, "postMessage" | "addEventListener"> & {
+export type TypedBroadcastChannel<T> = Omit<
+  BroadcastChannel,
+  "postMessage" | "addEventListener"
+> & {
   postMessage(message: T): void;
   addEventListener(
     type: "message",

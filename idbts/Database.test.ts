@@ -130,7 +130,7 @@ suite("Database", { concurrency: true }, () => {
     db.idb.close();
   });
 
-  test("invalid key path - missing", async (t) => {
+  test("invalid key path - missing", async () => {
     const db = await openDB("missing-key-path", 1, {
       invalid: {
         keyPath: "doesnt.exist",
@@ -147,7 +147,7 @@ suite("Database", { concurrency: true }, () => {
     db.idb.close();
   });
 
-  test("invalid key path - boolean", async (t) => {
+  test("invalid key path - boolean", async () => {
     type Record = { foo: boolean };
     const db = await openDB("boolean-key-path", 1, {
       invalid: {
@@ -165,7 +165,7 @@ suite("Database", { concurrency: true }, () => {
     db.idb.close();
   });
 
-  test("special properties - string", async (t) => {
+  test("special properties - string", async () => {
     type Record = { str: string };
     const db = await openDB("special-properties-string", 1, {
       special: {
@@ -184,7 +184,7 @@ suite("Database", { concurrency: true }, () => {
     db.idb.close();
   });
 
-  test("special properties - array", async (t) => {
+  test("special properties - array", async () => {
     type Record = { arr: boolean[] };
     const db = await openDB("special-properties-array", 1, {
       special: {

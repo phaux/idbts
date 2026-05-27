@@ -5,7 +5,10 @@ import { MiniObservable } from "./MiniObservable.ts";
 import { primaryKey, query, type QueryOptions } from "./query.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
 
-export function liveQuery<const Schema extends AnyDatabaseSchema, StoreName extends keyof Schema & string>(
+export function liveQuery<
+  const Schema extends AnyDatabaseSchema,
+  StoreName extends keyof Schema & string,
+>(
   db: Database<Schema>,
   storeName: StoreName,
   options: QueryOptions<Schema[StoreName]>,
@@ -43,20 +46,22 @@ export function liveQuery<const Schema extends AnyDatabaseSchema, StoreName exte
 
     function applyChanges(changes: readonly DBChange<any>[]) {
       for (const change of changes) {
-        if (change.old) {
-          const key = getValueByKeyPath(change.old, keyPath);
-          const index = currentResults!.findIndex((item) => indexedDB.cmp(getValueByKeyPath(item, keyPath), key) === 0);
+        if (change.oldValue) {
+          const key = getValueByKeyPath(change.oldValue, keyPath);
+          const index = currentResults!.findIndex(
+            (item) => indexedDB.cmp(getValueByKeyPath(item, keyPath), key) === 0,
+          );
           if (index >= 0) {
             currentResults = Array.from(currentResults!);
             currentResults.splice(index, 1);
           }
         }
-        if (change.new) {
-          const key = getValueByKeyPath(change.new, keyPath);
-          if (queryMatches(options, change.new, keyPath)) {
+        if (change.newValue) {
+          const key = getValueByKeyPath(change.newValue, keyPath);
+          if (queryMatches(options, change.newValue, keyPath)) {
             currentResults = currentResults!
               .filter((item) => indexedDB.cmp(getValueByKeyPath(item, keyPath), key) !== 0)
-              .concat([change.new])
+              .concat([change.newValue])
               .sort((a, b) => {
                 for (const field of orderFields) {
                   const aValue = getValueBySingleKeyPath(a, field);

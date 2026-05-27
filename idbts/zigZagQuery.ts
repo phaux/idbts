@@ -55,7 +55,9 @@ export async function* zigZagQuery<T>(
     indexValues.map(([index, value]) => {
       // For compound indexes, value can be a prefix of the indexed key.
       // In that case we want to query for all keys starting with the prefix.
-      const range = Array.isArray(value) ? KeyRange.bound(value, [...value, getMaxKey()]) : KeyRange.only(value);
+      const range = Array.isArray(value)
+        ? KeyRange.bound(value, [...value, getMaxKey()])
+        : KeyRange.only(value);
       return idbReqToPromise(index.openCursor(range, direction));
     }),
   );
@@ -112,7 +114,10 @@ export async function* zigZagQuery<T>(
   }
 }
 
-function getPostfix(prefix: ValidKey, cursor: IDBCursor): readonly [...(readonly IDBValidKey[]), IDBValidKey] {
+function getPostfix(
+  prefix: ValidKey,
+  cursor: IDBCursor,
+): readonly [...(readonly IDBValidKey[]), IDBValidKey] {
   // For primitive index the postfix is just the primary key.
   if (!Array.isArray(prefix) || !Array.isArray(cursor.key)) return [cursor.primaryKey];
   // For compound index, the postfix is the part after the prefix.

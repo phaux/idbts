@@ -40,7 +40,13 @@ suite("query", { concurrency: true }, async () => {
     /*  6 */ { id: 13, name: { first: "Piotr", last: "Dudek" }, age: 25, points: 1515 },
     /*  7 */ { id: 15, name: { first: "Bożena", last: "Majewska" }, age: 45, points: 1002 },
     /*  8 */ { id: 17, name: { first: "Piotr", last: "Nowak" }, age: 15, points: 1500 },
-    /*  9 */ { id: 19, name: { first: "Sławomir", last: "Kowalski" }, age: 29, points: 900, level: 5 },
+    /*  9 */ {
+      id: 19,
+      name: { first: "Sławomir", last: "Kowalski" },
+      age: 29,
+      points: 900,
+      level: 5,
+    },
     /* 10 */ { id: 21, name: { first: "Radosław", last: "Wieczorek" }, age: 31, points: 1010 },
     /* 11 */ { id: 23, name: { first: "Anna", last: "Majewska" }, age: 42, points: 1440 },
     /* 12 */ { id: 25, name: { first: "Maciej", last: "Nowak" }, age: 35, points: 810, level: 2 },
@@ -64,7 +70,10 @@ suite("query", { concurrency: true }, async () => {
     });
 
     await t.test("with limit reversed", async () => {
-      deepEqual(await query(db, "items", { limit: 5, direction: "prev" }), data.toReversed().slice(0, 5));
+      deepEqual(
+        await query(db, "items", { limit: 5, direction: "prev" }),
+        data.toReversed().slice(0, 5),
+      );
     });
   });
 

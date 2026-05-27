@@ -5,7 +5,10 @@ export class MiniObservable<T> {
     this.#cb = cb;
   }
 
-  subscribe({ next }: MiniObserver<T>, { signal }: { signal?: AbortSignal | undefined }): Promise<void> {
+  subscribe(
+    { next }: MiniObserver<T>,
+    { signal }: { signal?: AbortSignal | undefined },
+  ): Promise<void> {
     return new Promise((resolve) => {
       this.#cb({ next, signal });
       if (signal?.aborted) resolve();

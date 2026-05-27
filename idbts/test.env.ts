@@ -7,7 +7,8 @@ globalThis.BroadcastChannel = class FakeBroadcastChannel extends EventTarget {
   constructor(name: string) {
     super();
     this.#name = name;
-    if (!FakeBroadcastChannel.#channels.has(name)) FakeBroadcastChannel.#channels.set(name, new Set());
+    if (!FakeBroadcastChannel.#channels.has(name))
+      FakeBroadcastChannel.#channels.set(name, new Set());
     FakeBroadcastChannel.#channels.get(name)!.add(this);
   }
 

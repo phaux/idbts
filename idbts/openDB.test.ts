@@ -9,7 +9,14 @@ suite("openDB", () => {
 
   test("creates database with 1 store", async (t) => {
     const onUpgradeNeeded = t.mock.fn<NonNullable<IDBOpenDBRequest["onupgradeneeded"]>>();
-    const db = await openDB("test-db", 1, { strs: { keyPath: "id", value: schema<StrRecord>() } }, { onUpgradeNeeded });
+    const db = await openDB(
+      "test-db",
+      1,
+      {
+        strs: { keyPath: "id", value: schema<StrRecord>() },
+      },
+      { onUpgradeNeeded },
+    );
     deepEqual(Array.from(db.storeNames), ["strs"]);
     db.idb.close();
     deepEqual(onUpgradeNeeded.mock.calls.length, 1);
@@ -19,7 +26,14 @@ suite("openDB", () => {
 
   test("same version doesn't call onUpgradeNeeded", async (t) => {
     const onUpgradeNeeded = t.mock.fn<NonNullable<IDBOpenDBRequest["onupgradeneeded"]>>();
-    const db = await openDB("test-db", 1, { strs: { keyPath: "id", value: schema<StrRecord>() } }, { onUpgradeNeeded });
+    const db = await openDB(
+      "test-db",
+      1,
+      {
+        strs: { keyPath: "id", value: schema<StrRecord>() },
+      },
+      { onUpgradeNeeded },
+    );
     deepEqual(Array.from(db.storeNames), ["strs"]);
     db.idb.close();
     deepEqual(onUpgradeNeeded.mock.calls.length, 0);
@@ -93,7 +107,16 @@ suite("openDB", () => {
 
   test("downgrade errors", async (t) => {
     const onUpgradeNeeded = t.mock.fn();
-    await rejects(openDB("test-db", 3, { strs: { keyPath: "id", value: schema<StrRecord>() } }, { onUpgradeNeeded }));
+    await rejects(
+      openDB(
+        "test-db",
+        3,
+        {
+          strs: { keyPath: "id", value: schema<StrRecord>() },
+        },
+        { onUpgradeNeeded },
+      ),
+    );
     deepEqual(onUpgradeNeeded.mock.calls.length, 0);
   });
 });

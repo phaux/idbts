@@ -120,7 +120,10 @@ suite("useDBQuery", () => {
     const db = await openDB("use-query-by-field", 1, dbSchema);
 
     function Component() {
-      const users = useDBQuery(db, "users", { where: { email: KeyRange.bound("b", "k\uFFFF") }, orderBy: "email" });
+      const users = useDBQuery(db, "users", {
+        where: { email: KeyRange.bound("b", "k\uFFFF") },
+        orderBy: "email",
+      });
       return users.length > 0
         ? createElement(
             "ul",

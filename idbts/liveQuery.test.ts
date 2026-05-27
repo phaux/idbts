@@ -45,7 +45,11 @@ suite("liveQuery", { concurrency: true }, async () => {
         await db.insert("nums", [{ n: 2 }, { n: 4 }]);
         ac.abort();
         const changes = await changesPromise;
-        deepEqual(changes, [[], [{ n: 1 }, { n: 3 }, { n: 5 }], [{ n: 1 }, { n: 2 }, { n: 3 }, { n: 4 }, { n: 5 }]]);
+        deepEqual(changes, [
+          [],
+          [{ n: 1 }, { n: 3 }, { n: 5 }],
+          [{ n: 1 }, { n: 2 }, { n: 3 }, { n: 4 }, { n: 5 }],
+        ]);
         equal(changes[1]![0], changes[2]![0]);
         equal(changes[1]![1], changes[2]![2]);
         equal(changes[1]![2], changes[2]![4]);
@@ -106,7 +110,12 @@ suite("liveQuery", { concurrency: true }, async () => {
       await db.delete("nums", 6);
       ac.abort();
       const changes = await changesPromise;
-      deepEqual(changes, [[{ n: 3 }], [{ n: 2 }, { n: 3 }], [{ n: 2, s: "updated" }, { n: 3 }], [{ n: 3 }]]);
+      deepEqual(changes, [
+        [{ n: 3 }],
+        [{ n: 2 }, { n: 3 }],
+        [{ n: 2, s: "updated" }, { n: 3 }],
+        [{ n: 3 }],
+      ]);
       equal(changes[0]![0], changes[1]![1]);
       equal(changes[1]![1], changes[2]![1]);
       equal(changes[2]![1], changes[3]![0]);
@@ -331,7 +340,10 @@ suite("liveQuery", { concurrency: true }, async () => {
     await t.test("watching range", async (t) => {
       await t.test("insert and delete in range", async () => {
         const ac = new AbortController();
-        const changes = collect(liveQuery(db, "people", { where: { age: KeyRange.lowerBound(25) } }), ac.signal);
+        const changes = collect(
+          liveQuery(db, "people", { where: { age: KeyRange.lowerBound(25) } }),
+          ac.signal,
+        );
         await db.insert("people", { id: 4, name: "Eve", age: 28 });
         await db.delete("people", 4);
         ac.abort();
@@ -347,7 +359,10 @@ suite("liveQuery", { concurrency: true }, async () => {
 
       await t.test("insert and delete outside range", async () => {
         const ac = new AbortController();
-        const changes = collect(liveQuery(db, "people", { where: { age: KeyRange.lowerBound(25) } }), ac.signal);
+        const changes = collect(
+          liveQuery(db, "people", { where: { age: KeyRange.lowerBound(25) } }),
+          ac.signal,
+        );
         await db.insert("people", { id: 5, name: "Frank", age: 22 });
         await db.delete("people", 5);
         ac.abort();
@@ -386,6 +401,8 @@ suite("liveQuery", { concurrency: true }, async () => {
 function collect<T>(observable: MiniObservable<T>, signal: AbortSignal): Promise<T[]> {
   return new Promise((resolve, reject) => {
     const results: T[] = [];
-    observable.subscribe({ next: (value) => results.push(value) }, { signal }).then(() => resolve(results), reject);
+    observable
+      .subscribe({ next: (value) => results.push(value) }, { signal })
+      .then(() => resolve(results), reject);
   });
 }

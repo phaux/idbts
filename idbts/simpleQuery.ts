@@ -30,7 +30,11 @@ export async function* simpleQuery2<T>(
   while (cursor && i < limit) {
     if (primaryKeyRange) {
       const oldKey = cursor.primaryKey;
-      const nextCursor = await advanceCursorByPrimaryKeyRange(cursor, primaryKeyRange, direction === "prev");
+      const nextCursor = await advanceCursorByPrimaryKeyRange(
+        cursor,
+        primaryKeyRange,
+        direction === "prev",
+      );
       if (!nextCursor || indexedDB.cmp(nextCursor.primaryKey, oldKey) !== 0) {
         cursor = nextCursor;
         continue;

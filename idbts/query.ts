@@ -7,7 +7,10 @@ import { zigZagQuery } from "./zigZagQuery.ts";
 
 export const primaryKey: unique symbol = Symbol("primaryKey");
 
-export async function query<const Schema extends AnyDatabaseSchema, StoreName extends keyof Schema & string>(
+export async function query<
+  const Schema extends AnyDatabaseSchema,
+  StoreName extends keyof Schema & string,
+>(
   db: Database<Schema>,
   storeName: StoreName,
   options: QueryOptions<Schema[StoreName]>,
@@ -27,7 +30,9 @@ function planQuery(store: IDBObjectStore, options: QueryOptions<any>): () => Pro
   const eqFilters = filters
     .filter(([_path, range]) => isSingleValueRange(range))
     .map(([path, range]) => [path, range.lower!] as const);
-  const orderFields: string[] = (Array.isArray(orderBy) ? orderBy : orderBy != null ? [orderBy] : [])
+  const orderFields: string[] = (
+    Array.isArray(orderBy) ? orderBy : orderBy != null ? [orderBy] : []
+  )
     // Remove fields which are filtered by single value from ordering, as they don't affect order.
     .filter((field) => !eqFilters.some(([path]) => path === field));
 
@@ -39,7 +44,8 @@ function planQuery(store: IDBObjectStore, options: QueryOptions<any>): () => Pro
   const rangeFields = new Set(rangeFilters.map(([path]) => path));
   const indexes = findIndexes(store, orderFields, eqFields, rangeFields);
   const allIndexes = Array.from(store.indexNames).map((name) => store.index(name));
-  if (indexes.length === 0) throw new MissingIndexError(orderFields, eqFields, rangeFields, allIndexes);
+  if (indexes.length === 0)
+    throw new MissingIndexError(orderFields, eqFields, rangeFields, allIndexes);
 
   if (indexes.length === 1) {
     const index = indexes[0]!;
@@ -49,7 +55,8 @@ function planQuery(store: IDBObjectStore, options: QueryOptions<any>): () => Pro
     }
     // For compound index we need to create ranges for all fields in the index based on provided filters.
     const ranges = index.keyPath.map((field) => where[field]);
-    return () => Array.fromAsync(multiDimensionalQuery(index, ranges, keyRange, { direction, limit }));
+    return () =>
+      Array.fromAsync(multiDimensionalQuery(index, ranges, keyRange, { direction, limit }));
   }
 
   // If we have multiple indexes, use zig zag query.
@@ -61,8 +68,11 @@ function planQuery(store: IDBObjectStore, options: QueryOptions<any>): () => Pro
     }
   });
   const indexFields = indexes[0]!.keyPath;
-  const postfixRanges = Array.isArray(indexFields) ? indexFields.slice(1).map((field) => where[field]) : undefined;
-  return () => Array.fromAsync(zigZagQuery(indexValues, postfixRanges, keyRange, { direction, limit }));
+  const postfixRanges = Array.isArray(indexFields)
+    ? indexFields.slice(1).map((field) => where[field])
+    : undefined;
+  return () =>
+    Array.fromAsync(zigZagQuery(indexValues, postfixRanges, keyRange, { direction, limit }));
 }
 
 function findIndexes(
@@ -153,4 +163,6 @@ export type QueryOptions<Schema extends AnyStoreSchema> = {
   readonly limit?: number | undefined;
 };
 
-export type QueryFilters<Schema extends AnyStoreSchema> = Readonly<Record<string | symbol, KeyRange<ValidKey>>>;
+export type QueryFilters<Schema extends AnyStoreSchema> = Readonly<
+  Record<string | symbol, KeyRange<ValidKey>>
+>;

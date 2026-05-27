@@ -120,7 +120,9 @@ export class Database<const Schema extends AnyDatabaseSchema> {
    */
   async insert<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    values: SchemaValue<Schema[StoreName]["value"]> | readonly SchemaValue<Schema[StoreName]["value"]>[],
+    values:
+      | SchemaValue<Schema[StoreName]["value"]>
+      | readonly SchemaValue<Schema[StoreName]["value"]>[],
   ): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
@@ -131,7 +133,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
       sendDBChanges(
         this.idb.name,
         storeName,
-        valuesArray.map((value) => ({ new: value })),
+        valuesArray.map((value) => ({ newValue: value })),
       );
     } catch (error) {
       tx.abort();
@@ -161,7 +163,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
       throw new DOMException("Updater cannot change the primary key.", "InvalidStateError");
     }
     await idbReqToPromise(store.put(newValue));
-    sendDBChanges(this.idb.name, storeName, [{ old: oldValue, new: newValue }]);
+    sendDBChanges(this.idb.name, storeName, [{ oldValue: oldValue, newValue: newValue }]);
   }
 
   /**
@@ -178,21 +180,25 @@ export class Database<const Schema extends AnyDatabaseSchema> {
     const oldValue = await idbReqToPromise(store.get(key as IDBValidKey));
     if (oldValue == null) return;
     await idbReqToPromise(store.delete(key as IDBValidKey));
-    sendDBChanges(this.idb.name, storeName, [{ old: oldValue }]);
+    sendDBChanges(this.idb.name, storeName, [{ oldValue: oldValue }]);
   }
 }
 
 /**
  * Extracts the schema of a {@link Database}.
  */
-export type DatabaseSchemaOf<T extends Database<AnyDatabaseSchema>> = T extends Database<infer Schema> ? Schema : never;
+export type DatabaseSchemaOf<T extends Database<AnyDatabaseSchema>> =
+  T extends Database<infer Schema> ? Schema : never;
 
 /**
  * Infer a key type retrieved from the object store based on the store schema.
  *
  * It can be either the defined key type, auto-incrementing number, or a type at the specified key path.
  */
-export type StoreKey<Schema extends AnyStoreSchema> = ValuesAtPaths<SchemaValue<Schema["value"]>, Schema["keyPath"]>;
+export type StoreKey<Schema extends AnyStoreSchema> = ValuesAtPaths<
+  SchemaValue<Schema["value"]>,
+  Schema["keyPath"]
+>;
 
 /**
  * Infer a key type for retrieving from the index based on the store schema.

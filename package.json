@@ -9,7 +9,7 @@
     "test": "npm test --ws"
   },
   "prettier": {
-    "printWidth": 120
+    "printWidth": 100
   },
   "devDependencies": {
     "prettier": "^3.8.3",
