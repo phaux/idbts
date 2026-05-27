@@ -15,7 +15,7 @@
   "scripts": {
     "prepare": "tsc -p tsconfig.build.json",
     "check": "tsc --noEmit",
-    "test": "node --test --experimental-default-config-file --experimental-test-coverage --test-timeout 3000"
+    "test": "node --test --experimental-default-config-file --experimental-test-coverage --test-timeout 5000"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.0.2",

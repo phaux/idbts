@@ -5,7 +5,7 @@ import { simpleQuery, simpleQuery2 } from "./simpleQuery.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
 import { zigZagQuery } from "./zigZagQuery.ts";
 
-export const primaryKey = Symbol("primaryKey");
+export const primaryKey: unique symbol = Symbol("primaryKey");
 
 export async function query<const Schema extends AnyDatabaseSchema, StoreName extends keyof Schema & string>(
   db: Database<Schema>,
@@ -23,11 +23,11 @@ function planQuery(store: IDBObjectStore, options: QueryOptions<any>): () => Pro
 
   const keyRange = where[primaryKey];
   const filters = Object.entries(where);
-  const rangeFilters = objectEntries(where).filter(([_path, range]) => !isSingleValueRange(range));
+  const rangeFilters = Object.entries(where).filter(([_path, range]) => !isSingleValueRange(range));
   const eqFilters = filters
     .filter(([_path, range]) => isSingleValueRange(range))
     .map(([path, range]) => [path, range.lower!] as const);
-  const orderFields = toArray(orderBy)
+  const orderFields: string[] = (Array.isArray(orderBy) ? orderBy : orderBy != null ? [orderBy] : [])
     // Remove fields which are filtered by single value from ordering, as they don't affect order.
     .filter((field) => !eqFilters.some(([path]) => path === field));
 
@@ -54,7 +54,7 @@ function planQuery(store: IDBObjectStore, options: QueryOptions<any>): () => Pro
 
   // If we have multiple indexes, use zig zag query.
   const indexValues = indexes.map((index) => {
-    if (isArray(index.keyPath)) {
+    if (Array.isArray(index.keyPath)) {
       return [index, [where[index.keyPath[0]!]!.lower!]] as const;
     } else {
       return [index, where[index.keyPath]!.lower!] as const;
@@ -78,7 +78,7 @@ function findIndexes(
   let fullIndex: IDBIndex | undefined;
 
   for (const index of indexes) {
-    const indexFields = toArray(index.keyPath);
+    const indexFields = Array.isArray(index.keyPath) ? index.keyPath : [index.keyPath];
     const sortableIndexFields = indexFields.filter((field) => !eqFields.has(field));
 
     // If index consists of all the fields we need and begins with order fields, use it.
@@ -86,7 +86,11 @@ function findIndexes(
       allFields.values().every((field) => indexFields.includes(field)) &&
       orderFields.every((field, i) => sortableIndexFields[i] === field)
     ) {
-      if (!fullIndex || toArray(index.keyPath).length < toArray(fullIndex.keyPath).length) {
+      if (
+        !fullIndex ||
+        (Array.isArray(index.keyPath) ? index.keyPath.length : 1) <
+          (Array.isArray(fullIndex.keyPath) ? fullIndex.keyPath.length : 1)
+      ) {
         fullIndex = index;
       }
     }
@@ -109,7 +113,7 @@ function findIndexes(
     }
   }
 
-  return toArray(fullIndex);
+  return fullIndex != null ? [fullIndex] : [];
 }
 
 export class MissingIndexError extends Error {
@@ -121,7 +125,9 @@ export class MissingIndexError extends Error {
   ) {
     const sortableFields = new Set([...orderFields, ...rangeFields]);
     const missingIndexKeyPaths: string[] = [];
-    const allIndexKeyPaths = allIndexes.map((index) => toArray(index.keyPath).join("+"));
+    const allIndexKeyPaths = allIndexes.map((index) =>
+      Array.isArray(index.keyPath) ? index.keyPath.join("+") : index.keyPath,
+    );
     if (eqFields.size <= 1) {
       missingIndexKeyPaths.push([...eqFields, ...sortableFields].join("+"));
     } else {
@@ -141,15 +147,10 @@ export class MissingIndexError extends Error {
 }
 
 export type QueryOptions<Schema extends AnyStoreSchema> = {
-  readonly where?: Readonly<Record<string | symbol, KeyRange<ValidKey>>> | undefined;
+  readonly where?: QueryFilters<Schema> | undefined;
   readonly orderBy?: string | readonly string[] | undefined;
   readonly direction?: "next" | "prev" | undefined;
   readonly limit?: number | undefined;
 };
 
-const objectEntries = Object.entries as <T extends object>(obj: T) => [keyof T & string, T[keyof T]][];
-
-const isArray = Array.isArray as <T>(value: any) => value is readonly T[];
-
-const toArray = <T>(value: T | readonly T[] | null | undefined): readonly T[] =>
-  isArray(value) ? value : value != null ? [value] : [];
+export type QueryFilters<Schema extends AnyStoreSchema> = Readonly<Record<string | symbol, KeyRange<ValidKey>>>;

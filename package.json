@@ -5,6 +5,7 @@
   ],
   "scripts": {
     "prepare": "npm run prepare --ws",
+    "check": "npm run check --ws",
     "test": "npm test --ws"
   },
   "prettier": {

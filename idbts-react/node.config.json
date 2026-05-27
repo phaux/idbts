@@ -1,9 +1,10 @@
 {
-  "$schema": "https://nodejs.org/dist/v22.22.0/docs/node-config-schema.json",
+  "$schema": "https://nodejs.org/dist/v22.22.2/docs/node-config-schema.json",
   "nodeOptions": {
     "conditions": ["idbts/source"],
     "test-coverage-exclude": ["../**/*.ts"],
     "test-reporter": ["spec", "lcov"],
-    "test-reporter-destination": ["stdout", "lcov.info"]
+    "test-reporter-destination": ["stdout", "lcov.info"],
+    "import": ["./test.env.ts"]
   }
 }

@@ -53,22 +53,17 @@ export interface KeyRange<out T extends ValidKey = ValidKey> extends IDBKeyRange
   readonly upper: T | undefined;
 }
 
-/**
- * Either a single {@link ValidKey} or a {@link KeyRange}.
- */
-export type MaybeKeyRange<T extends ValidKey> = T | KeyRange<T>;
-
 /** Returns the maximum possible key value, which is greater than all other keys. */
-export const getMaxKey = () => [[]] as [[]];
+export const getMaxKey = (): [[]] => [[]];
 
 /** The minimum possible key value, which is less than all other keys. */
-export const minKey = -Infinity;
+export const minKey: number = -Infinity;
 
 /**
  * Returns true if the given range represents a single value
  * (i.e. lower and upper bounds are equal and not open).
  */
-export function isSingleValueRange(range: IDBKeyRange) {
+export function isSingleValueRange(range: IDBKeyRange): boolean {
   return (
     range.lower != null &&
     range.upper != null &&

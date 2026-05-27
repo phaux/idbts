@@ -1,7 +1,7 @@
 /**
  * Converts an {@link IDBRequest} to a Promise.
  */
-export const idbReqToPromise = <T>(request: IDBRequest<T>) =>
+export const idbReqToPromise = <T>(request: IDBRequest<T>): Promise<T> =>
   new Promise<T>((resolve, reject) => {
     const unlisten = () => {
       request.removeEventListener("success", handleSuccess);
