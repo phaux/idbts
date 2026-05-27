@@ -1,4 +1,4 @@
-import { sendDBChanges } from "./changesChannel.ts";
+import { sendDBChanges, type DBChange } from "./changesChannel.ts";
 import { getValueByKeyPath } from "./getValueByKeyPath.ts";
 import { idbReqToPromise } from "./idbReqToPromise.ts";
 import type { ValidKey } from "./KeyRange.ts";
@@ -126,23 +126,22 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   ): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
-    const valuesArray = Array.isArray(values) ? values : [values];
+    const valueArray = Array.isArray(values) ? values : [values];
     try {
-      const addPromises = valuesArray.map((value) => idbReqToPromise(store.add(value)));
-      await Promise.all(addPromises);
-      sendDBChanges(
-        this.idb.name,
-        storeName,
-        valuesArray.map((value) => ({ newValue: value })),
-      );
-    } catch (error) {
+      const changes: DBChange<any>[] = [];
+      for (const value of valueArray) {
+        await idbReqToPromise(store.add(value));
+        changes.push({ newValue: value });
+      }
+      sendDBChanges(this.idb.name, storeName, changes);
+    } catch (err) {
       tx.abort();
-      throw error;
+      throw err;
     }
   }
 
   /**
-   * Updates an object in the store using the provided updater function.
+   * Updates an object or objects in the store using the provided updater function.
    *
    * Updater receives undefined if the object doesn't exist.
    * If the updater returns undefined, the object will be deleted.
@@ -151,40 +150,65 @@ export class Database<const Schema extends AnyDatabaseSchema> {
    */
   async update<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    key: StoreKey<Schema[StoreName]>,
+    keys:
+      | Extract<StoreKey<Schema[StoreName]>, number | string>
+      | readonly StoreKey<Schema[StoreName]>[],
     updater: (
       value: Readonly<SchemaValue<Schema[StoreName]["value"]>> | undefined,
     ) => Readonly<SchemaValue<Schema[StoreName]["value"]>> | undefined,
   ): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
-    const oldValue = await idbReqToPromise(store.get(key as IDBValidKey));
-    const newValue = updater(oldValue);
-    if (newValue != null) {
-      if (indexedDB.cmp(getValueByKeyPath(newValue, store.keyPath!), key) !== 0)
-        throw new DOMException("Updater cannot change the primary key.", "InvalidStateError");
-      await idbReqToPromise(store.put(newValue));
-    } else if (oldValue != null) {
-      await idbReqToPromise(store.delete(key as IDBValidKey));
+    const keyArray = Array.isArray(keys) ? keys : [keys];
+    try {
+      const changes: DBChange<any>[] = [];
+      for (const key of keyArray) {
+        const oldValue = await idbReqToPromise(store.get(key as any));
+        const newValue = updater(oldValue);
+        if (newValue != null) {
+          if (indexedDB.cmp(getValueByKeyPath(newValue, store.keyPath!), key) !== 0)
+            throw new DOMException("Updater cannot change the primary key.", "InvalidStateError");
+          await idbReqToPromise(store.put(newValue));
+        } else if (oldValue != null) {
+          await idbReqToPromise(store.delete(key as any));
+        }
+        changes.push({ oldValue, newValue });
+      }
+      sendDBChanges(this.idb.name, storeName, changes);
+    } catch (err) {
+      tx.abort();
+      throw err;
     }
-    sendDBChanges(this.idb.name, storeName, [{ oldValue: oldValue, newValue: newValue }]);
   }
 
   /**
-   * Deletes an object from the store.
+   * Deletes an object or objects from the store.
    *
    * Does nothing if there is no object matching the primary key.
    */
   async delete<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    key: StoreKey<Schema[StoreName]>,
+    keys:
+      | Extract<StoreKey<Schema[StoreName]>, number | string>
+      | readonly StoreKey<Schema[StoreName]>[],
   ): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
-    const oldValue = await idbReqToPromise(store.get(key as IDBValidKey));
-    if (oldValue == null) return;
-    await idbReqToPromise(store.delete(key as IDBValidKey));
-    sendDBChanges(this.idb.name, storeName, [{ oldValue: oldValue }]);
+    const keyArray = Array.isArray(keys) ? keys : [keys];
+    try {
+      const changes: DBChange<any>[] = [];
+      for (const key of keyArray) {
+        const oldValue = await idbReqToPromise(store.get(key as any));
+        if (oldValue != null) {
+          await idbReqToPromise(store.delete(key as any));
+          changes.push({ oldValue });
+        }
+      }
+      sendDBChanges(this.idb.name, storeName, changes);
+    } catch (err) {
+      tx.abort();
+      throw err;
+    }
   }
 }
 

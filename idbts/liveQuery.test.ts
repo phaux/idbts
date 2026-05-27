@@ -75,6 +75,27 @@ suite("liveQuery", { concurrency: true }, async () => {
         equal(changes[1]![4], changes[2]![4]);
       });
 
+      await t.test("update many", async () => {
+        const ac = new AbortController();
+        const changesPromise = collect(liveQuery(db, "nums", {}), ac.signal);
+        await db.update("nums", [2, 4], (value) => ({ n: value!.n, s: "updated again" }));
+        ac.abort();
+        const changes = await changesPromise;
+        deepEqual(changes, [
+          [{ n: 1 }, { n: 2, s: "updated" }, { n: 3 }, { n: 4, s: "updated" }, { n: 5 }],
+          [
+            { n: 1 },
+            { n: 2, s: "updated again" },
+            { n: 3 },
+            { n: 4, s: "updated again" },
+            { n: 5 },
+          ],
+        ]);
+        equal(changes[0]![0], changes[1]![0]);
+        equal(changes[0]![2], changes[1]![2]);
+        equal(changes[0]![4], changes[1]![4]);
+      });
+
       await t.test("delete", async () => {
         const ac = new AbortController();
         const changesPromise = collect(liveQuery(db, "nums", {}), ac.signal);
@@ -83,8 +104,14 @@ suite("liveQuery", { concurrency: true }, async () => {
         ac.abort();
         const changes = await changesPromise;
         deepEqual(changes, [
-          [{ n: 1 }, { n: 2, s: "updated" }, { n: 3 }, { n: 4, s: "updated" }, { n: 5 }],
-          [{ n: 1 }, { n: 3 }, { n: 4, s: "updated" }, { n: 5 }],
+          [
+            { n: 1 },
+            { n: 2, s: "updated again" },
+            { n: 3 },
+            { n: 4, s: "updated again" },
+            { n: 5 },
+          ],
+          [{ n: 1 }, { n: 3 }, { n: 4, s: "updated again" }, { n: 5 }],
           [{ n: 1 }, { n: 3 }, { n: 5 }],
         ]);
         equal(changes[0]![0], changes[1]![0]);
@@ -93,6 +120,16 @@ suite("liveQuery", { concurrency: true }, async () => {
         equal(changes[1]![1], changes[2]![1]);
         equal(changes[0]![4], changes[1]![3]);
         equal(changes[1]![3], changes[2]![2]);
+      });
+
+      await t.test("delete many", async () => {
+        const ac = new AbortController();
+        const changesPromise = collect(liveQuery(db, "nums", {}), ac.signal);
+        await db.delete("nums", [1, 2, 4, 5]);
+        ac.abort();
+        const changes = await changesPromise;
+        deepEqual(changes, [[{ n: 1 }, { n: 3 }, { n: 5 }], [{ n: 3 }]]);
+        equal(changes[0]![1], changes[1]![0]);
       });
     });
 
@@ -178,8 +215,16 @@ suite("liveQuery", { concurrency: true }, async () => {
       await t.test("update", async () => {
         const ac = new AbortController();
         const changes = collect(liveQuery(db, "points", {}), ac.signal);
-        await db.update("points", [1, 2], (value) => ({ x: value!.x, y: value!.y, s: "updated" }));
-        await db.update("points", [2, 1], (value) => ({ x: value!.x, y: value!.y, s: "updated" }));
+        await db.update("points", [[1, 2]], (value) => ({
+          x: value!.x,
+          y: value!.y,
+          s: "updated",
+        }));
+        await db.update("points", [[2, 1]], (value) => ({
+          x: value!.x,
+          y: value!.y,
+          s: "updated",
+        }));
         ac.abort();
         deepEqual(await changes, [
           [
@@ -206,8 +251,8 @@ suite("liveQuery", { concurrency: true }, async () => {
       await t.test("delete", async () => {
         const ac = new AbortController();
         const changes = collect(liveQuery(db, "points", {}), ac.signal);
-        await db.delete("points", [1, 2]);
-        await db.delete("points", [2, 1]);
+        await db.delete("points", [[1, 2]]);
+        await db.delete("points", [[2, 1]]);
         ac.abort();
         deepEqual(await changes, [
           [

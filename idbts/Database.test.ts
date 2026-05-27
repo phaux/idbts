@@ -65,7 +65,9 @@ suite("Database", { concurrency: true }, () => {
     });
 
     await t.test("update name", async () => {
-      const updater = expectTypeOf(db.update<"num2name">).parameter(2);
+      const type = expectTypeOf(db.update<"num2name">);
+      type.parameter(1).toEqualTypeOf<number | readonly number[]>();
+      const updater = type.parameter(2);
       updater.parameter(0).toEqualTypeOf<Readonly<NameRecord> | undefined>();
       updater.returns.toEqualTypeOf<Readonly<NameRecord> | undefined>();
       await db.update("num2name", 1, (value) => ({ ...value!, name: value!.name + "!" }));
@@ -76,6 +78,25 @@ suite("Database", { concurrency: true }, () => {
       deepEqual(await db.get("num2name", 2), undefined);
       await db.update("num2name", 2, () => ({ id: 2, name: "new!" }));
       deepEqual(await db.get("num2name", 2), { id: 2, name: "new!" });
+    });
+
+    await t.test("update many", async () => {
+      await db.update("num2name", [1, 2], (value) => ({ id: value!.id, name: value!.name + "?" }));
+      deepEqual(await db.get("num2name", 1), { id: 1, name: "foo!?" });
+      deepEqual(await db.get("num2name", 2), { id: 2, name: "new!?" });
+    });
+
+    await t.test("update many rollbacks if one fails", async () => {
+      await rejects(() =>
+        db.update("num2name", [1, 2], (value) => {
+          if (value!.id === 2) {
+            throw new Error("fail");
+          }
+          return { id: value!.id, name: value!.name + "." };
+        }),
+      );
+      deepEqual(await db.get("num2name", 1), { id: 1, name: "foo!?" });
+      deepEqual(await db.get("num2name", 2), { id: 2, name: "new!?" });
     });
 
     await t.test("update can delete entry", async () => {
@@ -90,7 +111,7 @@ suite("Database", { concurrency: true }, () => {
     await t.test("delete", async () => {
       expectTypeOf(db.delete<"union2date">)
         .parameter(1)
-        .toEqualTypeOf<number | string>();
+        .toEqualTypeOf<number | string | readonly (number | string)[]>();
       await db.delete("union2date", 1);
       deepEqual(await db.get("union2date", 1), undefined);
     });
@@ -212,6 +233,7 @@ suite("Database", { concurrency: true }, () => {
   test("array key", async (t) => {
     type Record = {
       coords: [x: number, y: number];
+      name?: string;
     };
     const db = await openDB("array-key", 1, {
       points: {
@@ -221,16 +243,39 @@ suite("Database", { concurrency: true }, () => {
     });
 
     await t.test("insert and get", async () => {
-      await db.insert("points", { coords: [1, 2] });
+      await db.insert("points", [{ coords: [1, 2] }, { coords: [3, 4] }]);
       expectTypeOf(db.get<"points">)
         .parameter(1)
         .toEqualTypeOf<[number, number]>();
       deepEqual(await db.get("points", [1, 2]), { coords: [1, 2] });
     });
 
+    await t.test("update", async () => {
+      const type = expectTypeOf(db.update<"points">);
+      type.parameter(1).toEqualTypeOf<readonly [number, number][]>();
+      const updater = type.parameter(2);
+      updater.parameter(0).toEqualTypeOf<Readonly<Record> | undefined>();
+      updater.returns.toEqualTypeOf<Readonly<Record> | undefined>();
+      await db.update("points", [[1, 2]], (value) => ({ coords: value!.coords, name: "point" }));
+      deepEqual(await db.get("points", [1, 2]), { coords: [1, 2], name: "point" });
+    });
+
+    await t.test("update many", async () => {
+      await db.update(
+        "points",
+        [
+          [1, 2],
+          [3, 4],
+        ],
+        (value) => ({ coords: value!.coords, name: "updated" }),
+      );
+      deepEqual(await db.get("points", [1, 2]), { coords: [1, 2], name: "updated" });
+      deepEqual(await db.get("points", [3, 4]), { coords: [3, 4], name: "updated" });
+    });
+
     await t.test("update throws if key changed", async () => {
       await rejects(() =>
-        db.update("points", [1, 2], (value) => ({
+        db.update("points", [[1, 2]], (value) => ({
           coords: [value!.coords[0] + 1, value!.coords[1] + 1],
         })),
       );
@@ -243,6 +288,7 @@ suite("Database", { concurrency: true }, () => {
     type Record = {
       x: number;
       y: number;
+      name?: string;
     };
     const db = await openDB("compound-key", 1, {
       points: {
@@ -252,16 +298,42 @@ suite("Database", { concurrency: true }, () => {
     });
 
     await t.test("insert and get", async () => {
-      await db.insert("points", { x: 1, y: 2 });
+      await db.insert("points", [
+        { x: 1, y: 2 },
+        { x: 3, y: 4 },
+      ]);
       expectTypeOf(db.get<"points">)
         .parameter(1)
         .toEqualTypeOf<readonly [number, number]>();
       deepEqual(await db.get("points", [1, 2]), { x: 1, y: 2 });
     });
 
+    await t.test("update", async () => {
+      const type = expectTypeOf(db.update<"points">);
+      type.parameter(1).toEqualTypeOf<readonly (readonly [number, number])[]>();
+      const updater = type.parameter(2);
+      updater.parameter(0).toEqualTypeOf<Readonly<Record> | undefined>();
+      updater.returns.toEqualTypeOf<Readonly<Record> | undefined>();
+      await db.update("points", [[1, 2]], (value) => ({ x: value!.x, y: value!.y, name: "point" }));
+      deepEqual(await db.get("points", [1, 2]), { x: 1, y: 2, name: "point" });
+    });
+
+    await t.test("update many", async () => {
+      await db.update(
+        "points",
+        [
+          [1, 2],
+          [3, 4],
+        ],
+        (value) => ({ x: value!.x, y: value!.y, name: "updated" }),
+      );
+      deepEqual(await db.get("points", [1, 2]), { x: 1, y: 2, name: "updated" });
+      deepEqual(await db.get("points", [3, 4]), { x: 3, y: 4, name: "updated" });
+    });
+
     await t.test("update throws if key changed", async () => {
       await rejects(() =>
-        db.update("points", [1, 2], (value) => ({
+        db.update("points", [[1, 2]], (value) => ({
           x: value!.x + 1,
           y: value!.y + 1,
         })),
