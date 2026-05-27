@@ -1,33 +1,13 @@
-import type { AnyDatabaseSchema, Database, IndexKey, KeyRange, SchemaValue, StoreOutputKey } from "idbts";
-import { useObservable } from "./useObservable.ts";
+import { liveQuery, type AnyDatabaseSchema, type Database, type QueryOptions, type SchemaValue } from "idbts";
+import { useSubscribable } from "./useSubscribable.ts";
 
 export function useDBQuery<Schema extends AnyDatabaseSchema, StoreName extends keyof Schema & string>(
   db: Database<Schema>,
   storeName: StoreName,
-  key: StoreOutputKey<Schema[StoreName]>,
-): SchemaValue<Schema[StoreName]["value"]> | undefined {
-  return useObservable(() => db.watch(storeName, key), [db.name, storeName, key]);
-}
-
-export function useDBQueryAll<Schema extends AnyDatabaseSchema, StoreName extends keyof Schema & string>(
-  db: Database<Schema>,
-  storeName: StoreName,
-  range?: KeyRange<StoreOutputKey<Schema[StoreName]>>,
+  options: QueryOptions<Schema[StoreName]>,
 ): SchemaValue<Schema[StoreName]["value"]>[] {
-  return useObservable(() => db.watchAll(storeName, range), [db.name, storeName, range]);
+  return useSubscribable(
+    () => liveQuery(db, storeName, options),
+    ["idbts", db.idb.name, storeName, JSON.stringify(options)],
+  );
 }
-
-export function useDBQueryAllBy<
-  Schema extends AnyDatabaseSchema,
-  StoreName extends keyof Schema & string,
-  IndexName extends keyof Schema[StoreName]["indexes"] & string,
->(
-  db: Database<Schema>,
-  storeName: StoreName,
-  indexName: IndexName,
-  range?: KeyRange<IndexKey<Schema[StoreName], IndexName>>,
-): SchemaValue<Schema[StoreName]["value"]>[] {
-  return useObservable(() => db.watchAllBy(storeName, indexName, range), [db.name, storeName, indexName, range]);
-}
-
-export * from "idbts";

@@ -1,17 +1,15 @@
-import "./test.env.ts";
-
+import { KeyRange, openDB, primaryKey, schema } from "idbts";
 import { equal } from "node:assert/strict";
-import { test } from "node:test";
+import { suite, test } from "node:test";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { openDB, schema, useDBQuery, useDBQueryAll, useDBQueryAllBy } from "./index.ts";
+import { useDBQuery } from "./index.ts";
 
 const dbSchema = {
   users: {
     keyPath: "id",
-    autoIncrement: true,
     value: schema<{
-      id?: number;
+      id: number;
       name: string;
       email: string;
     }>(),
@@ -21,169 +19,153 @@ const dbSchema = {
   },
 } as const;
 
-test("useDBQuery", async () => {
-  const db = await openDB("test-db", 1, dbSchema);
-
+suite("useDBQuery", () => {
   const container = document.createElement("div");
   document.body.appendChild(container);
 
-  function Component() {
-    const user = useDBQuery(db, "users", 1);
-    return createElement("h1", null, user?.name ?? "No user");
-  }
+  test("query by primary key", async () => {
+    const db = await openDB("use-query-by-key", 1, dbSchema);
 
-  const root = createRoot(container);
-  await act(async () => {
-    root.render(createElement(Component));
-    await delay(100);
+    function Component() {
+      const user = useDBQuery(db, "users", { where: { [primaryKey]: KeyRange.only(1) } })[0];
+      return createElement("h1", null, user?.name ?? "No user");
+    }
+
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(createElement(Component));
+    });
+
+    equal(container.querySelector("h1")!.textContent, "No user");
+
+    await act(async () => {
+      await db.insert("users", { id: 1, name: "Alice", email: "alice@example.com" });
+    });
+
+    equal(container.querySelector("h1")!.textContent, "Alice");
+
+    await act(async () => {
+      await db.update("users", 1, (entry) => ({ ...entry!, name: "Alice Updated" }));
+    });
+
+    equal(container.querySelector("h1")!.textContent, "Alice Updated");
+
+    await act(async () => {
+      await db.delete("users", 1);
+    });
+
+    equal(container.querySelector("h1")!.textContent, "No user");
+
+    await act(async () => {
+      root.unmount();
+    });
+
+    db.idb.close();
   });
 
-  equal(container.querySelector("h1")!.textContent, "No user");
+  test("query all", async () => {
+    const db = await openDB("use-query-all", 1, dbSchema);
 
-  let id = 0;
-  await act(async () => {
-    id = await db.add("users", { name: "Alice", email: "alice@example.com" });
-    await delay(100);
+    function Component() {
+      const users = useDBQuery(db, "users", {});
+      return users.length > 0
+        ? createElement(
+            "ul",
+            { id: "userlist" },
+            users.map((user) => createElement("li", { key: user.id }, user.name)),
+          )
+        : createElement("p", { id: "userlist" }, "No users");
+    }
+
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(createElement(Component));
+    });
+
+    equal(container.querySelector("#userlist")!.textContent, "No users");
+
+    await act(async () => {
+      await db.insert("users", { id: 1, name: "Bob", email: "bob@example.com" });
+    });
+
+    equal(container.querySelector("#userlist")!.textContent, "Bob");
+
+    await act(async () => {
+      await db.update("users", 1, (entry) => ({ ...entry!, name: "Bob Updated" }));
+    });
+
+    equal(container.querySelector("#userlist")!.textContent, "Bob Updated");
+
+    await act(async () => {
+      await db.insert("users", { id: 2, name: "Charlie", email: "charlie@example.com" });
+    });
+
+    equal(container.querySelector("#userlist")!.textContent, "Bob UpdatedCharlie");
+
+    await act(async () => {
+      await db.delete("users", 1);
+      await db.delete("users", 2);
+    });
+
+    equal(container.querySelector("#userlist")!.textContent, "No users");
+
+    await act(async () => {
+      root.unmount();
+    });
+
+    db.idb.close();
   });
 
-  equal(container.querySelector("h1")!.textContent, "Alice");
+  test("query by field", async () => {
+    const db = await openDB("use-query-by-field", 1, dbSchema);
 
-  await act(async () => {
-    await db.put("users", { id, name: "Alice Updated", email: "alice@example.com" });
-    await delay(100);
+    function Component() {
+      const users = useDBQuery(db, "users", { where: { email: KeyRange.bound("b", "k\uFFFF") }, orderBy: "email" });
+      return users.length > 0
+        ? createElement(
+            "ul",
+            { id: "userlist" },
+            users.map((user) => createElement("li", { key: user.id }, user.name)),
+          )
+        : createElement("p", { id: "userlist" }, "No users");
+    }
+
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(createElement(Component));
+    });
+
+    equal(container.querySelector("#userlist")!.textContent, "No users");
+
+    await act(async () => {
+      await db.insert("users", { id: 1, name: "Charlie", email: "charlie@example.com" });
+    });
+
+    equal(container.querySelector("#userlist")!.textContent, "Charlie");
+
+    await act(async () => {
+      await db.insert("users", { id: 2, name: "Bob", email: "bob@example.com" });
+    });
+
+    equal(container.querySelector("#userlist")!.textContent, "BobCharlie");
+
+    await act(async () => {
+      await db.insert("users", { id: 3, name: "Alice", email: "alice@example.com" });
+    });
+
+    equal(container.querySelector("#userlist")!.textContent, "BobCharlie");
+
+    await act(async () => {
+      await db.delete("users", 1);
+      await db.delete("users", 2);
+    });
+
+    equal(container.querySelector("#userlist")!.textContent, "No users");
+
+    await act(async () => {
+      root.unmount();
+    });
+
+    db.idb.close();
   });
-
-  equal(container.querySelector("h1")!.textContent, "Alice Updated");
-
-  await act(async () => {
-    await db.tx("users", "readwrite").store().delete(id);
-    await delay(100);
-  });
-
-  equal(container.querySelector("h1")!.textContent, "No user");
-
-  await act(async () => {
-    root.unmount();
-  });
-
-  container.remove();
-  db.close();
 });
-
-test("useDBQueryAll", async () => {
-  const db = await openDB("test-db", 1, dbSchema);
-
-  const container = document.createElement("div");
-  document.body.appendChild(container);
-
-  function Component() {
-    const users = useDBQueryAll(db, "users");
-    return users.length > 0
-      ? createElement(
-          "ul",
-          { id: "userlist" },
-          users.map((user) => createElement("li", { key: user.id }, user.name)),
-        )
-      : createElement("p", { id: "userlist" }, "No users");
-  }
-
-  const root = createRoot(container);
-  await act(async () => {
-    root.render(createElement(Component));
-    await delay(100);
-  });
-
-  equal(container.querySelector("#userlist")!.textContent, "No users");
-
-  let id = 0;
-  await act(async () => {
-    id = await db.add("users", { name: "Bob", email: "bob@example.com" });
-    await delay(100);
-  });
-
-  equal(container.querySelector("#userlist")!.textContent, "Bob");
-
-  await act(async () => {
-    await db.put("users", { id, name: "Bob Updated", email: "bob@example.com" });
-    await delay(100);
-  });
-
-  equal(container.querySelector("#userlist")!.textContent, "Bob Updated");
-
-  await act(async () => {
-    await db.add("users", { name: "Charlie", email: "charlie@example.com" });
-    await delay(100);
-  });
-
-  equal(container.querySelector("#userlist")!.textContent, "Bob UpdatedCharlie");
-
-  await act(async () => {
-    await db.tx("users", "readwrite").store().clear();
-    await delay(100);
-  });
-
-  equal(container.querySelector("#userlist")!.textContent, "No users");
-
-  await act(async () => {
-    root.unmount();
-  });
-
-  container.remove();
-  db.close();
-});
-
-test("useDBQueryAllBy", async () => {
-  const db = await openDB("test-db", 1, dbSchema);
-
-  const container = document.createElement("div");
-  document.body.appendChild(container);
-
-  function Component() {
-    const users = useDBQueryAllBy(db, "users", "email");
-    return users.length > 0
-      ? createElement(
-          "ul",
-          { id: "userlist" },
-          users.map((user) => createElement("li", { key: user.id }, user.name)),
-        )
-      : createElement("p", { id: "userlist" }, "No users");
-  }
-
-  const root = createRoot(container);
-  await act(async () => {
-    root.render(createElement(Component));
-    await delay(100);
-  });
-
-  equal(container.querySelector("#userlist")!.textContent, "No users");
-
-  await act(async () => {
-    await db.add("users", { name: "Charlie", email: "charlie@example.com" });
-    await delay(100);
-  });
-
-  equal(container.querySelector("#userlist")!.textContent, "Charlie");
-
-  await act(async () => {
-    await db.add("users", { name: "Bob", email: "bob@example.com" });
-    await delay(100);
-  });
-
-  equal(container.querySelector("#userlist")!.textContent, "BobCharlie");
-
-  await act(async () => {
-    await db.tx("users", "readwrite").store().clear();
-    await delay(100);
-  });
-
-  equal(container.querySelector("#userlist")!.textContent, "No users");
-
-  await act(async () => {
-    root.unmount();
-  });
-
-  container.remove();
-  db.close();
-});
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

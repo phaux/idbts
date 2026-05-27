@@ -24,12 +24,12 @@ export function liveQuery<const Schema extends AnyDatabaseSchema, StoreName exte
         const lastResults = currentResults;
         applyChanges(changes);
         if (currentResults !== lastResults) {
-          subscriber.next(currentResults);
+          subscriber.next?.(currentResults);
         }
       }
     });
-    if (subscriber.signal.aborted) changesChannel.close();
-    else subscriber.signal.addEventListener("abort", () => changesChannel.close());
+    if (subscriber.signal?.aborted) changesChannel.close();
+    else subscriber.signal?.addEventListener("abort", () => changesChannel.close());
 
     const keyPath = db.idb.transaction(storeName, "readonly").objectStore(storeName).keyPath!;
     const orderFields = Array.isArray(orderBy) ? orderBy : orderBy != null ? [orderBy] : [];
@@ -38,7 +38,7 @@ export function liveQuery<const Schema extends AnyDatabaseSchema, StoreName exte
       currentResults = results;
       applyChanges(bufferedChanges);
       bufferedChanges.length = 0;
-      subscriber.next(currentResults);
+      subscriber.next?.(currentResults);
     });
 
     function applyChanges(changes: readonly DBChange<any>[]) {
