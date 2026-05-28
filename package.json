@@ -5,6 +5,7 @@
   ],
   "scripts": {
     "prepare": "npm run prepare --ws",
+    "clean": "npm run clean --ws",
     "check": "npm run check --ws",
     "test": "npm test --ws"
   },

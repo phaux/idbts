@@ -14,6 +14,7 @@
   "main": "./index.js",
   "scripts": {
     "prepare": "tsc -p tsconfig.build.json",
+    "clean": "rm *.{js,d.ts,map}",
     "check": "tsc --noEmit",
     "test": "node --test --experimental-default-config-file --experimental-test-coverage --test-timeout 5000"
   },
