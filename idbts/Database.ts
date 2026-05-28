@@ -210,6 +210,18 @@ export class Database<const Schema extends AnyDatabaseSchema> {
       throw err;
     }
   }
+
+  /**
+   * Deletes all objects from the store.
+   */
+  async clear<const StoreName extends keyof Schema & string>(storeName: StoreName): Promise<void> {
+    const tx = this.idb.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    const oldValues = await idbReqToPromise(store.getAll());
+    await idbReqToPromise(store.clear());
+    const changes: DBChange<any>[] = oldValues.map((oldValue) => ({ oldValue }));
+    sendDBChanges(this.idb.name, storeName, changes);
+  }
 }
 
 /**

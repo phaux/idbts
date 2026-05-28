@@ -55,13 +55,19 @@ suite("Database", { concurrency: true }, () => {
       expectTypeOf(db.insert<"union2date">)
         .parameter(1)
         .toEqualTypeOf<DateRecord | readonly DateRecord[]>();
-      await db.insert("union2date", { id: 1, created: now });
+      await db.insert("union2date", [
+        { id: 1, created: now },
+        { id: "two", created: now },
+      ]);
       expectTypeOf(db.get<"union2date">)
         .parameter(1)
         .toEqualTypeOf<number | string>();
       deepEqual(await db.get("union2date", 1), { id: 1, created: now });
       expectTypeOf(db.getAll<"union2date">).returns.resolves.toEqualTypeOf<DateRecord[]>();
-      deepEqual(await db.getAll("union2date"), [{ id: 1, created: now }]);
+      deepEqual(await db.getAll("union2date"), [
+        { id: 1, created: now },
+        { id: "two", created: now },
+      ]);
     });
 
     await t.test("update name", async () => {
@@ -118,6 +124,11 @@ suite("Database", { concurrency: true }, () => {
 
     await t.test("delete non-existing", async () => {
       await db.delete("union2date", 123);
+    });
+
+    await t.test("delete all", async () => {
+      await db.clear("union2date");
+      deepEqual(await db.getAll("union2date"), []);
     });
 
     db.idb.close();
