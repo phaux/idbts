@@ -4,7 +4,6 @@ import { KeyRange } from "./KeyRange.ts";
 import { liveQuery } from "./liveQuery.ts";
 import type { MiniObservable } from "./MiniObservable.ts";
 import { openDB } from "./openDB.ts";
-import { primaryKey } from "./query.ts";
 import { schema } from "./StandardSchema.ts";
 
 suite("liveQuery", { concurrency: true }, async () => {
@@ -136,7 +135,7 @@ suite("liveQuery", { concurrency: true }, async () => {
     await t.test("watching key range", async () => {
       const ac = new AbortController();
       const changesPromise = collect(
-        liveQuery(db, "nums", { where: { [primaryKey]: KeyRange.bound(2, 4) } }),
+        liveQuery(db, "nums", { where: { n: KeyRange.bound(2, 4) } }),
         ac.signal,
       );
       await db.insert("nums", { n: 2 });

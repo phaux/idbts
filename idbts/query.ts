@@ -1,11 +1,8 @@
 import type { AnyDatabaseSchema, AnyStoreSchema, Database } from "./Database.ts";
 import { isSingleValueRange, KeyRange, type ValidKey } from "./KeyRange.ts";
 import { multiDimensionalQuery } from "./multiDimensionalQuery.ts";
-import { simpleQuery, simpleQuery2 } from "./simpleQuery.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
 import { zigZagQuery } from "./zigZagQuery.ts";
-
-export const primaryKey: unique symbol = Symbol("primaryKey");
 
 export async function query<
   const Schema extends AnyDatabaseSchema,
@@ -24,77 +21,88 @@ export async function query<
 function planQuery(store: IDBObjectStore, options: QueryOptions<any>): () => Promise<any[]> {
   const { where = {}, orderBy, direction, limit = Infinity } = options;
 
-  const keyRange = where[primaryKey];
-  const filters = Object.entries(where);
-  const rangeFilters = Object.entries(where).filter(([_path, range]) => !isSingleValueRange(range));
-  const eqFilters = filters
+  const queryFilters = Object.entries(where);
+  const queryRangeFilters = Object.entries(where).filter(
+    ([_path, range]) => !isSingleValueRange(range),
+  );
+  const queryEqFilters = queryFilters
     .filter(([_path, range]) => isSingleValueRange(range))
     .map(([path, range]) => [path, range.lower!] as const);
-  const orderFields: string[] = (
+
+  const queryOrderFields: string[] = (
     Array.isArray(orderBy) ? orderBy : orderBy != null ? [orderBy] : []
-  )
-    // Remove fields which are filtered by single value from ordering, as they don't affect order.
-    .filter((field) => !eqFilters.some(([path]) => path === field));
+  ) // Remove fields which are filtered by single value from ordering, as they don't affect order.
+    .filter((field) => !queryEqFilters.some(([path]) => path === field));
 
-  if (filters.length + orderFields.length === 0) {
-    return () => Array.fromAsync(simpleQuery(store, keyRange, { direction, limit }));
-  }
-
-  const eqFields = new Set(eqFilters.map(([path]) => path));
-  const rangeFields = new Set(rangeFilters.map(([path]) => path));
-  const indexes = findIndexes(store, orderFields, eqFields, rangeFields);
+  const queryEqFields = new Set(queryEqFilters.map(([path]) => path));
+  const queryRangeFields = new Set(queryRangeFilters.map(([path]) => path));
+  const sortableQueryFields = new Set([...queryOrderFields, ...queryRangeFields]);
+  const allQueryFields = new Set([...queryEqFields, ...sortableQueryFields]);
+  const queryIndexes = findIndexes(store, queryOrderFields, queryEqFields, queryRangeFields);
   const allIndexes = Array.from(store.indexNames).map((name) => store.index(name));
-  if (indexes.length === 0)
-    throw new MissingIndexError(orderFields, eqFields, rangeFields, allIndexes);
+  if (queryIndexes.length === 0)
+    throw new MissingIndexError(queryOrderFields, queryEqFields, queryRangeFields, allIndexes);
+  const primaryKeyPaths = Array.isArray(store.keyPath!) ? store.keyPath : [store.keyPath!];
+  const primaryRanges = primaryKeyPaths.map((field) => where[field]);
 
-  if (indexes.length === 1) {
-    const index = indexes[0]!;
-    if (!Array.isArray(index.keyPath)) {
-      const range = where[index.keyPath];
-      return () => Array.fromAsync(simpleQuery2(index, range, keyRange, { direction, limit }));
-    }
-    // For compound index we need to create ranges for all fields in the index based on provided filters.
-    const ranges = index.keyPath.map((field) => where[field]);
+  if (queryIndexes.length === 1) {
+    const index = queryIndexes[0]!;
+    const keyPaths = Array.isArray(index.keyPath!) ? index.keyPath : [index.keyPath!];
+    const ranges = keyPaths.map((field) => where[field]);
     return () =>
-      Array.fromAsync(multiDimensionalQuery(index, ranges, keyRange, { direction, limit }));
+      Array.fromAsync(multiDimensionalQuery(index, ranges, primaryRanges, { direction, limit }));
   }
 
   // If we have multiple indexes, use zig zag query.
-  const indexValues = indexes.map((index) => {
+  const indexValues = queryIndexes.map((index) => {
     if (Array.isArray(index.keyPath)) {
       return [index, [where[index.keyPath[0]!]!.lower!]] as const;
     } else {
-      return [index, where[index.keyPath]!.lower!] as const;
+      return [index, where[index.keyPath!]!.lower!] as const;
     }
   });
-  const indexFields = indexes[0]!.keyPath;
+  const indexFields = queryIndexes[0]!.keyPath;
   const postfixRanges = Array.isArray(indexFields)
     ? indexFields.slice(1).map((field) => where[field])
     : undefined;
   return () =>
-    Array.fromAsync(zigZagQuery(indexValues, postfixRanges, keyRange, { direction, limit }));
+    Array.fromAsync(zigZagQuery(indexValues, postfixRanges, primaryRanges, { direction, limit }));
 }
 
 function findIndexes(
   store: IDBObjectStore,
-  orderFields: readonly string[],
-  eqFields: ReadonlySet<string>,
-  rangeFields: ReadonlySet<string>,
-): readonly IDBIndex[] {
+  queryOrderFields: readonly string[],
+  queryEqFields: ReadonlySet<string>,
+  queryRangeFields: ReadonlySet<string>,
+): readonly (IDBObjectStore | IDBIndex)[] {
   const indexes = Array.from(store.indexNames).map((name) => store.index(name));
-  const sortableFields = new Set([...orderFields, ...rangeFields]);
-  const allFields = new Set([...eqFields, ...sortableFields]);
+  const primaryKeyPaths = Array.isArray(store.keyPath) ? store.keyPath : [store.keyPath!];
+  const sortablePrimaryFields = primaryKeyPaths.filter((field) => !queryEqFields.has(field));
+  const sortableQueryFields = new Set([...queryOrderFields, ...queryRangeFields]);
+  const allQueryFields = new Set([...queryEqFields, ...sortableQueryFields]);
   const zigZagIndexes = new Map<string, Map<string, IDBIndex>>();
   let fullIndex: IDBIndex | undefined;
 
+  // If primary key consists of all the fields we need and begins with order fields,
+  // use the store itself.
+  if (
+    allQueryFields.values().every((field) => primaryKeyPaths.includes(field)) &&
+    queryOrderFields.every((field, i) => sortablePrimaryFields[i] === field)
+  ) {
+    return [store];
+  }
+
   for (const index of indexes) {
     const indexFields = Array.isArray(index.keyPath) ? index.keyPath : [index.keyPath];
-    const sortableIndexFields = indexFields.filter((field) => !eqFields.has(field));
+    const allIndexFields = [...indexFields, ...primaryKeyPaths];
+    const sortableIndexFields = allIndexFields.filter((field) => !queryEqFields.has(field));
 
-    // If index consists of all the fields we need and begins with order fields, use it.
+    // If index consists of all the fields we need and begins with order fields,
+    // use it as the full index.
     if (
-      allFields.values().every((field) => indexFields.includes(field)) &&
-      orderFields.every((field, i) => sortableIndexFields[i] === field)
+      allQueryFields.values().every((field) => allIndexFields.includes(field)) &&
+      indexFields.every((field) => allQueryFields.has(field)) &&
+      queryOrderFields.every((field, i) => sortableIndexFields[i] === field)
     ) {
       if (
         !fullIndex ||
@@ -105,17 +113,19 @@ function findIndexes(
       }
     }
 
-    // If index begins with one of eq fields followed by sortable fields, add it to potential zig zag indexes.
+    // If index begins with one of eq fields followed by sortable fields,
+    // add it to potential zig zag indexes.
     if (
-      eqFields.has(indexFields[0]!) &&
-      sortableFields.values().every((field) => indexFields.includes(field)) &&
-      orderFields.every((field, i) => indexFields[i + 1] === field)
+      queryEqFields.has(allIndexFields[0]!) &&
+      sortableQueryFields.values().every((field) => allIndexFields.includes(field)) &&
+      indexFields.every((field) => allQueryFields.has(field)) &&
+      queryOrderFields.every((field, i) => allIndexFields[i + 1] === field)
     ) {
       // Group indexes by the fields they have after eq fields, as those are the ones used for zig zag merge.
       const postfix = indexFields.slice(1).join("+");
       const foundIndexes = zigZagIndexes.get(postfix) ?? new Map<string, IDBIndex>();
       foundIndexes.set(indexFields[0]!, index);
-      if (foundIndexes.size === eqFields.size) {
+      if (foundIndexes.size === queryEqFields.size) {
         // If we have found indexes for all eq fields with the same postfix, we can use them for zig zag merge.
         return Array.from(foundIndexes.values());
       }

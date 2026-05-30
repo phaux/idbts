@@ -2,7 +2,7 @@ import { getDBChangesChannel, type DBChange } from "./changesChannel.ts";
 import type { AnyDatabaseSchema, Database } from "./Database.ts";
 import { getValueByKeyPath, getValueBySingleKeyPath } from "./getValueByKeyPath.ts";
 import { MiniObservable } from "./MiniObservable.ts";
-import { primaryKey, query, type QueryOptions } from "./query.ts";
+import { query, type QueryOptions } from "./query.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
 
 export function liveQuery<
@@ -58,7 +58,7 @@ export function liveQuery<
         }
         if (change.newValue) {
           const key = getValueByKeyPath(change.newValue, keyPath);
-          if (queryMatches(options, change.newValue, keyPath)) {
+          if (queryMatches(options, change.newValue)) {
             currentResults = currentResults!
               .filter((item) => indexedDB.cmp(getValueByKeyPath(item, keyPath), key) !== 0)
               .concat([change.newValue])
@@ -85,12 +85,8 @@ export function liveQuery<
   });
 }
 
-function queryMatches(options: QueryOptions<any>, item: any, keyPath: string | string[]): boolean {
+function queryMatches(options: QueryOptions<any>, item: any): boolean {
   const { where = {} } = options;
-  const keyRange = where[primaryKey];
-  if (keyRange != null && !keyRange.includes(getValueByKeyPath(item, keyPath))) {
-    return false;
-  }
   for (const [key, range] of Object.entries(where)) {
     if (!range.includes(getValueBySingleKeyPath(item, key))) {
       return false;

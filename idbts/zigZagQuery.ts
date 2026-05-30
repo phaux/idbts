@@ -1,4 +1,4 @@
-import { advanceCursorByRanges } from "./advanceCursorByRanges.ts";
+import { advanceIndexRanges } from "./advanceCursorByRanges.ts";
 import { idbReqToPromise } from "./idbReqToPromise.ts";
 import { getMaxKey, KeyRange, type ValidKey } from "./KeyRange.ts";
 
@@ -43,9 +43,9 @@ export interface ZigZagQueryOptions {
  * ```
  */
 export async function* zigZagQuery<T>(
-  indexValues: ReadonlyArray<readonly [index: IDBIndex, value: ValidKey]>,
-  postfixRanges: ReadonlyArray<KeyRange | undefined> = [],
-  primaryKeyRange?: KeyRange,
+  indexValues: ReadonlyArray<readonly [index: IDBObjectStore | IDBIndex, value: ValidKey]>,
+  postfixRanges: ReadonlyArray<IDBKeyRange | undefined> | undefined,
+  primaryKeyRanges: ReadonlyArray<IDBKeyRange | undefined>,
   options: ZigZagQueryOptions = {},
 ): AsyncIterableIterator<T, undefined, undefined> {
   const { direction, limit = Infinity } = options;
@@ -68,8 +68,8 @@ export async function* zigZagQuery<T>(
     cursors = await Promise.all(
       cursors.map((cursor) => {
         // First key part is already constrained by cursor's range
-        const ranges = [undefined, ...postfixRanges];
-        return advanceCursorByRanges(cursor, ranges, primaryKeyRange, direction === "prev");
+        const ranges = [undefined, ...(postfixRanges ?? [])];
+        return advanceIndexRanges(cursor, ranges, primaryKeyRanges, direction === "prev");
       }),
     );
 
