@@ -1,7 +1,6 @@
 import { sendDBChanges, type DBChange } from "./changesChannel.ts";
 import { getValueByKeyPath } from "./getValueByKeyPath.ts";
 import { idbReqToPromise } from "./idbReqToPromise.ts";
-import type { ValidKey } from "./KeyRange.ts";
 import type { SchemaValue, StandardSchema } from "./StandardSchema.ts";
 import type { ValuesAtPaths } from "./ValuesAtPaths.ts";
 
@@ -97,7 +96,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
    */
   async get<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    key: StoreKey<Schema[StoreName]>,
+    key: StorePrimaryKey<Schema[StoreName]>,
   ): Promise<SchemaValue<Schema[StoreName]["value"]> | undefined> {
     const tx = this.idb.transaction(storeName, "readonly");
     const store = tx.objectStore(storeName);
@@ -151,8 +150,8 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   async update<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
     keys:
-      | Extract<StoreKey<Schema[StoreName]>, number | string>
-      | readonly StoreKey<Schema[StoreName]>[],
+      | Extract<StorePrimaryKey<Schema[StoreName]>, number | string>
+      | readonly StorePrimaryKey<Schema[StoreName]>[],
     updater: (
       value: Readonly<SchemaValue<Schema[StoreName]["value"]>> | undefined,
     ) => Readonly<SchemaValue<Schema[StoreName]["value"]>> | undefined,
@@ -189,8 +188,8 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   async delete<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
     keys:
-      | Extract<StoreKey<Schema[StoreName]>, number | string>
-      | readonly StoreKey<Schema[StoreName]>[],
+      | Extract<StorePrimaryKey<Schema[StoreName]>, number | string>
+      | readonly StorePrimaryKey<Schema[StoreName]>[],
   ): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
@@ -235,7 +234,7 @@ export type DatabaseSchemaOf<T extends Database<AnyDatabaseSchema>> =
  *
  * It can be either the defined key type, auto-incrementing number, or a type at the specified key path.
  */
-export type StoreKey<Schema extends AnyStoreSchema> = ValuesAtPaths<
+export type StorePrimaryKey<Schema extends AnyStoreSchema> = ValuesAtPaths<
   SchemaValue<Schema["value"]>,
   Schema["keyPath"]
 >;

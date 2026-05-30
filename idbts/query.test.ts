@@ -600,7 +600,7 @@ suite("query", { concurrency: true }, async () => {
           },
           orderBy: "level",
         }),
-      { message: "Missing indices on name.first+level, name.last+level." },
+      { message: "Missing index on name.first+level, name.last+level." },
     );
   });
 
@@ -778,7 +778,7 @@ suite("query", { concurrency: true }, async () => {
             level: KeyRange.lowerBound(0),
           },
         }),
-      { message: "Missing indices on name.first+level, name.last+level." },
+      { message: "Missing index on name.first+level, name.last+level." },
     );
   });
 
@@ -1594,7 +1594,7 @@ suite("query with compound key", { concurrency: true }, async () => {
           },
           orderBy: ["z", "y", "x"],
         }),
-      { message: "Missing indices on n+z+y+x, t+z+y+x." },
+      { message: "Missing index on n+z+y+x, t+z+y+x." },
     );
   });
 

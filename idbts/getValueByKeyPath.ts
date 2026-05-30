@@ -1,9 +1,9 @@
 export function getValueByKeyPath(obj: unknown, keyPath: string | string[]): unknown {
-  if (typeof keyPath === "string") return getValueBySingleKeyPath(obj, keyPath);
-  return keyPath.map((kp) => getValueBySingleKeyPath(obj, kp));
+  if (typeof keyPath === "string") return getValueByField(obj, keyPath);
+  return keyPath.map((kp) => getValueByField(obj, kp));
 }
 
-export function getValueBySingleKeyPath(obj: unknown, keyPath: string): unknown {
+export function getValueByField(obj: unknown, keyPath: string): unknown {
   const parts = keyPath.split(".");
   let current = obj;
   for (const part of parts) {

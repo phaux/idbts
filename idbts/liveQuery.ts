@@ -1,6 +1,6 @@
 import { getDBChangesChannel, type DBChange } from "./changesChannel.ts";
 import type { AnyDatabaseSchema, Database } from "./Database.ts";
-import { getValueByKeyPath, getValueBySingleKeyPath } from "./getValueByKeyPath.ts";
+import { getValueByField, getValueByKeyPath } from "./getValueByKeyPath.ts";
 import { MiniObservable } from "./MiniObservable.ts";
 import { query, type QueryOptions } from "./query.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
@@ -64,8 +64,8 @@ export function liveQuery<
               .concat([change.newValue])
               .sort((a, b) => {
                 for (const field of orderFields) {
-                  const aValue = getValueBySingleKeyPath(a, field);
-                  const bValue = getValueBySingleKeyPath(b, field);
+                  const aValue = getValueByField(a, field);
+                  const bValue = getValueByField(b, field);
                   let order = indexedDB.cmp(aValue, bValue);
                   if (order !== 0) {
                     if (direction === "prev") order = -order;
@@ -88,7 +88,7 @@ export function liveQuery<
 function queryMatches(options: QueryOptions<any>, item: any): boolean {
   const { where = {} } = options;
   for (const [key, range] of Object.entries(where)) {
-    if (!range.includes(getValueBySingleKeyPath(item, key))) {
+    if (!range.includes(getValueByField(item, key))) {
       return false;
     }
   }
