@@ -1,7 +1,8 @@
-import type { AnyDatabaseSchema, AnyStoreSchema, Database } from "./Database.ts";
+import type { AnyDatabaseSchema, AnyIndexSchema, AnyStoreSchema, Database } from "./Database.ts";
 import { idbReqToPromise } from "./idbReqToPromise.ts";
 import { getMaxKey, isSingleValueRange, KeyRange, minKey, type ValidKey } from "./KeyRange.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
+import type { ValueAtPath } from "./ValuesAtPaths.ts";
 
 export async function query<
   const Schema extends AnyDatabaseSchema,
@@ -13,29 +14,29 @@ export async function query<
 ): Promise<SchemaValue<Schema[StoreName]["value"]>[]> {
   const tx = db.idb.transaction(storeName, "readonly");
   const store = tx.objectStore(storeName);
-  const { where = {}, orderBy, direction, limit } = options;
+  const { where = {}, orderBy = [] } = options;
 
-  const queryFilters = Object.entries(where);
-  const queryRangeFilters = Object.entries(where).filter(
-    ([_path, range]) => !isSingleValueRange(range),
-  );
+  const queryFilters = Object.entries<IDBKeyRange>(where);
+  const queryFilterMap = new Map(queryFilters);
+  const queryRangeFilters = queryFilters.filter(([_path, range]) => !isSingleValueRange(range));
   const queryEqFilters = queryFilters
     .filter(([_path, range]) => isSingleValueRange(range))
     .map(([path, range]) => [path, range.lower!] as const);
 
   const queryEqFields = new Set(queryEqFilters.map(([field]) => field));
-  const queryOrderFields: string[] = (
-    Array.isArray(orderBy) ? orderBy : orderBy != null ? [orderBy] : []
-  ) // Remove fields which are filtered by single value from ordering, as they don't affect order.
+  const queryOrderFields = (
+    (Array.isArray as (v: unknown) => v is readonly unknown[])(orderBy) ? orderBy : [orderBy]
+  )
+    // Remove fields which are filtered by single value from ordering, as they don't affect order.
     .filter((field) => !queryEqFields.has(field));
-
   const queryRangeFields = new Set(queryRangeFilters.map(([field]) => field));
   const sortableQueryFields = new Set([...queryOrderFields, ...queryRangeFields]);
   const allQueryFields = new Set([...queryEqFields, ...sortableQueryFields]);
+
   const allIndexes = Array.from(store.indexNames).map((name) => store.index(name));
 
   const primaryKeyFields = Array.isArray(store.keyPath) ? store.keyPath : [store.keyPath!];
-  const primaryKeyRanges = primaryKeyFields.map((field) => where[field]);
+  const primaryKeyRanges = primaryKeyFields.map((field) => queryFilterMap.get(field));
   const sortablePrimaryKeyFields = primaryKeyFields.filter((field) => !queryEqFields.has(field));
 
   // If primary key consists of all the fields we need and begins with order fields,
@@ -44,9 +45,7 @@ export async function query<
     allQueryFields.values().every((field) => primaryKeyFields.includes(field)) &&
     queryOrderFields.every((field, i) => sortablePrimaryKeyFields[i] === field)
   ) {
-    return Array.fromAsync(
-      iterateStoreOrIndex(store, primaryKeyRanges, undefined, { direction, limit }),
-    );
+    return Array.fromAsync(iterateStoreOrIndex(store, primaryKeyRanges, undefined, options));
   }
 
   const zigZagIndexes = new Map<string, Map<string, IDBIndex>>();
@@ -63,10 +62,8 @@ export async function query<
       indexKeyFields.every((field) => allQueryFields.has(field)) &&
       queryOrderFields.every((field, i) => sortableIndexFields[i] === field)
     ) {
-      const keyRanges = indexKeyFields.map((path) => where[path]);
-      return Array.fromAsync(
-        iterateStoreOrIndex(index, keyRanges, primaryKeyRanges, { direction, limit }),
-      );
+      const keyRanges = indexKeyFields.map((path) => queryFilterMap.get(path));
+      return Array.fromAsync(iterateStoreOrIndex(index, keyRanges, primaryKeyRanges, options));
     }
 
     // If index begins with one of eq fields followed by sortable fields,
@@ -86,45 +83,43 @@ export async function query<
         const queryIndexes = Array.from(foundIndexes.values());
         const indexValues = queryIndexes.map((index) =>
           Array.isArray(index.keyPath)
-            ? ([index, [where[index.keyPath[0]!]!.lower!]] as const)
-            : ([index, where[index.keyPath!]!.lower!] as const),
+            ? ([index, [queryFilterMap.get(index.keyPath[0]!)!.lower!]] as const)
+            : ([index, queryFilterMap.get(index.keyPath!)!.lower!] as const),
         );
         const indexFields = queryIndexes[0]!.keyPath;
         const postfixRanges = Array.isArray(indexFields)
-          ? indexFields.slice(1).map((field) => where[field])
+          ? indexFields.slice(1).map((field) => queryFilterMap.get(field))
           : undefined;
-        return Array.fromAsync(
-          zigZagQuery(indexValues, postfixRanges, primaryKeyRanges, { direction, limit }),
-        );
+        return Array.fromAsync(zigZagQuery(indexValues, postfixRanges, primaryKeyRanges, options));
       }
       zigZagIndexes.set(postfix, foundIndexes);
     }
   }
 
-  const missingIndexStrings: string[] = [];
-  const allIndexStrings = new Set(
+  const missingIndexPaths: string[] = [];
+  const allIndexPaths = new Set(
     allIndexes.map((index) =>
       Array.isArray(index.keyPath) ? index.keyPath.join("+") : index.keyPath,
     ),
   );
 
   if (queryEqFields.size <= 1) {
-    missingIndexStrings.push([...queryEqFields, ...sortableQueryFields].join("+"));
+    missingIndexPaths.push([...queryEqFields, ...sortableQueryFields].join("+"));
   } else {
     for (const eqField of queryEqFields) {
-      const prefix = [eqField, ...sortableQueryFields];
-      if (!allIndexStrings.has(prefix.join("+"))) {
-        missingIndexStrings.push(prefix.join("+"));
+      const keyPath = [eqField, ...sortableQueryFields].join("+");
+      if (!allIndexPaths.has(keyPath)) {
+        missingIndexPaths.push(keyPath);
       }
     }
   }
 
-  throw new Error(`Missing index on ${missingIndexStrings.join(", ")}.`);
+  throw new Error(`Missing index on ${missingIndexPaths.join(", ")}.`);
 }
 
-export interface QueryOptions<Schema extends AnyStoreSchema> extends QueryIterOptions {
-  readonly where?: QueryFilters<Schema> | undefined;
-  readonly orderBy?: string | readonly string[] | undefined;
+export interface QueryOptions<StoreSchema extends AnyStoreSchema> extends QueryIterOptions {
+  readonly where?: QueryFilters<StoreSchema> | undefined;
+  readonly orderBy?: QueryOrder<StoreSchema> | undefined;
 }
 
 export interface QueryIterOptions {
@@ -132,9 +127,44 @@ export interface QueryIterOptions {
   readonly limit?: number | undefined;
 }
 
-export type QueryFilters<Schema extends AnyStoreSchema> = Readonly<
-  Record<string | symbol, KeyRange<ValidKey>>
->;
+export type QueryFilters<StoreSchema extends AnyStoreSchema> = {
+  readonly [K in QueryFieldsFromStore<StoreSchema>]?:
+    | KeyRange<Extract<ValueAtPath<SchemaValue<StoreSchema["value"]>, K>, ValidKey>>
+    | undefined;
+} & {
+  readonly [K in QueryFieldsFromIndexes<StoreSchema> & string]?:
+    | KeyRange<Extract<ValueAtPath<SchemaValue<StoreSchema["value"]>, K>, ValidKey>>
+    | undefined;
+};
+
+export type QueryFieldsFromStore<StoreSchema extends AnyStoreSchema> =
+  StoreSchema["keyPath"] extends readonly string[]
+    ? StoreSchema["keyPath"][number] & string
+    : StoreSchema["keyPath"] extends string
+      ? StoreSchema["keyPath"] & string
+      : never;
+
+export type QueryFieldsFromIndexes<StoreSchema extends AnyStoreSchema> =
+  StoreSchema["indexes"] extends {}
+    ? {
+        [I in keyof StoreSchema["indexes"]]: QueryFieldsFromIndex<StoreSchema["indexes"][I]>;
+      }[keyof StoreSchema["indexes"]]
+    : never;
+
+export type QueryFieldsFromIndex<IndexSchema extends AnyIndexSchema> =
+  IndexSchema["keyPath"] extends readonly string[]
+    ? IndexSchema["keyPath"][number] & string
+    : IndexSchema["keyPath"] extends string
+      ? IndexSchema["keyPath"] & string
+      : never;
+
+export type QueryOrder<StoreSchema extends AnyStoreSchema> =
+  | QueryOrderField<StoreSchema>
+  | readonly QueryOrderField<StoreSchema>[];
+
+export type QueryOrderField<StoreSchema extends AnyStoreSchema> =
+  | QueryFieldsFromStore<StoreSchema>
+  | QueryFieldsFromIndexes<StoreSchema>;
 
 /**
  * Performs a zig-zag merge join algorithm to query the given database.

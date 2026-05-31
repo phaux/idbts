@@ -9,7 +9,7 @@ import type { ValuesAtPaths } from "./ValuesAtPaths.ts";
  *
  * It's a map of store names to their schemas.
  */
-export type AnyDatabaseSchema = Record<string, AnyStoreSchema>;
+export type AnyDatabaseSchema = Readonly<Record<string, AnyStoreSchema>>;
 
 /**
  * A schema for a {@link Database} store.
@@ -21,7 +21,7 @@ export interface AnyStoreSchema {
    * This can be any StandardSchema-compatible schema.
    * Use {@link schema} to create a noop schema.
    */
-  value: StandardSchema<object>;
+  readonly value: StandardSchema<object>;
 
   /**
    * The primary key path of the store.
@@ -30,14 +30,14 @@ export interface AnyStoreSchema {
    *
    * @see {@link ValuesAtPaths}
    */
-  keyPath: string | readonly string[];
+  readonly keyPath: string | readonly string[];
 
   /**
    * The schemas of the indexes.
    *
    * This is a map of index names to their schemas.
    */
-  indexes?: Record<string, AnyIndexSchema> | undefined;
+  readonly indexes?: Record<string, AnyIndexSchema> | undefined;
 }
 
 /**
@@ -51,7 +51,7 @@ export interface AnyIndexSchema {
    *
    * @see {@link ValuesAtPaths}
    */
-  keyPath: string | readonly string[];
+  readonly keyPath: string | readonly string[];
 
   /**
    * Whether the index is multi-entry.
@@ -59,14 +59,14 @@ export interface AnyIndexSchema {
    * If true and the indexed value is an array, each value in the array is indexed separately.
    * In this case, the inferred index key type is flattened if it is an array.
    */
-  multiEntry?: boolean | undefined;
+  readonly multiEntry?: boolean | undefined;
 
   /**
    * Whether the index is unique.
    *
    * If true, the index will only allow unique values.
    */
-  unique?: boolean | undefined;
+  readonly unique?: boolean | undefined;
 }
 
 /**
@@ -226,8 +226,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
 /**
  * Extracts the schema of a {@link Database}.
  */
-export type DatabaseSchemaOf<T extends Database<AnyDatabaseSchema>> =
-  T extends Database<infer Schema> ? Schema : never;
+export type DatabaseSchemaOf<T> = T extends Database<infer Schema> ? Schema : never;
 
 /**
  * Infer a key type retrieved from the object store based on the store schema.
@@ -238,23 +237,3 @@ export type StorePrimaryKey<Schema extends AnyStoreSchema> = ValuesAtPaths<
   SchemaValue<Schema["value"]>,
   Schema["keyPath"]
 >;
-
-/**
- * Infer a key type for retrieving from the index based on the store schema.
- *
- * It is the type of the value at the specified key path.
- * Additionally, if the index is multi-entry, the key type is flattened if it is an array.
- */
-export type IndexKey<
-  StoreSchema extends AnyStoreSchema,
-  IndexName extends keyof StoreSchema["indexes"] & string,
-> = StoreSchema["indexes"] extends {}
-  ? ValuesAtPaths<
-      SchemaValue<StoreSchema["value"]>,
-      StoreSchema["indexes"][IndexName]["keyPath"]
-    > extends infer Key extends ValidKey
-    ? StoreSchema["indexes"][IndexName]["multiEntry"] extends true
-      ? FlatArray<Key, 1>
-      : Key
-    : never
-  : never;

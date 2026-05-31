@@ -58,7 +58,7 @@ export function liveQuery<
         }
         if (change.newValue) {
           const key = getValueByKeyPath(change.newValue, keyPath);
-          if (queryMatches(options, change.newValue)) {
+          if (!options.where || queryMatches(change.newValue, options.where)) {
             currentResults = currentResults!
               .filter((item) => indexedDB.cmp(getValueByKeyPath(item, keyPath), key) !== 0)
               .concat([change.newValue])
@@ -85,9 +85,8 @@ export function liveQuery<
   });
 }
 
-function queryMatches(options: QueryOptions<any>, item: any): boolean {
-  const { where = {} } = options;
-  for (const [key, range] of Object.entries(where)) {
+function queryMatches(item: any, filters: Record<string, IDBKeyRange>): boolean {
+  for (const [key, range] of Object.entries(filters)) {
     if (!range.includes(getValueByField(item, key))) {
       return false;
     }
