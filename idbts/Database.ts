@@ -229,9 +229,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
 export type DatabaseSchemaOf<T> = T extends Database<infer Schema> ? Schema : never;
 
 /**
- * Infer a key type retrieved from the object store based on the store schema.
- *
- * It can be either the defined key type, auto-incrementing number, or a type at the specified key path.
+ * Infer the primary key type of an object store based on its schema.
  */
 export type StorePrimaryKey<Schema extends AnyStoreSchema> = ValuesAtPaths<
   SchemaValue<Schema["value"]>,

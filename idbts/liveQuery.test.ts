@@ -1,6 +1,5 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { suite, test } from "node:test";
-import { KeyRange } from "./KeyRange.ts";
 import { liveQuery } from "./liveQuery.ts";
 import type { MiniObservable } from "./MiniObservable.ts";
 import { openDB } from "./openDB.ts";
@@ -135,7 +134,7 @@ suite("liveQuery", { concurrency: true }, async () => {
     await t.test("watching key range", async () => {
       const ac = new AbortController();
       const changesPromise = collect(
-        liveQuery(db, "nums", { where: { n: KeyRange.bound(2, 4) } }),
+        liveQuery(db, "nums", { where: { n: { lower: 2, upper: 4 } } }),
         ac.signal,
       );
       await db.insert("nums", { n: 2 });
@@ -385,7 +384,7 @@ suite("liveQuery", { concurrency: true }, async () => {
       await t.test("insert and delete in range", async () => {
         const ac = new AbortController();
         const changes = collect(
-          liveQuery(db, "people", { where: { age: KeyRange.lowerBound(25) } }),
+          liveQuery(db, "people", { where: { age: { lower: 25 } } }),
           ac.signal,
         );
         await db.insert("people", { id: 4, name: "Eve", age: 28 });
@@ -404,7 +403,7 @@ suite("liveQuery", { concurrency: true }, async () => {
       await t.test("insert and delete outside range", async () => {
         const ac = new AbortController();
         const changes = collect(
-          liveQuery(db, "people", { where: { age: KeyRange.lowerBound(25) } }),
+          liveQuery(db, "people", { where: { age: { lower: 25 } } }),
           ac.signal,
         );
         await db.insert("people", { id: 5, name: "Frank", age: 22 });
@@ -416,7 +415,7 @@ suite("liveQuery", { concurrency: true }, async () => {
       await t.test("update", async () => {
         const ac = new AbortController();
         const changes = collect(
-          liveQuery(db, "people", { orderBy: "age", where: { age: KeyRange.upperBound(25) } }),
+          liveQuery(db, "people", { orderBy: "age", where: { age: { upper: 25 } } }),
           ac.signal,
         );
         await db.update("people", 3, (value) => ({ ...value!, age: 25 }));

@@ -1,6 +1,12 @@
 import type { AnyDatabaseSchema, AnyIndexSchema, AnyStoreSchema, Database } from "./Database.ts";
 import { idbReqToPromise } from "./idbReqToPromise.ts";
-import { getMaxKey, isSingleValueRange, KeyRange, minKey, type ValidKey } from "./KeyRange.ts";
+import {
+  getMaxKey,
+  isSingleValueRange,
+  type MaybeKeyRange,
+  minKey,
+  toKeyRange,
+} from "./KeyRange.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
 import type { ValueAtPath } from "./ValuesAtPaths.ts";
 
@@ -16,12 +22,14 @@ export async function query<
   const store = tx.objectStore(storeName);
   const { where = {}, orderBy = [] } = options;
 
-  const queryFilters = Object.entries<IDBKeyRange>(where);
+  const queryFilters = Object.entries<MaybeKeyRange<IDBValidKey>>(where).map(
+    ([path, range]) => [path, toKeyRange(range)] as const,
+  );
   const queryFilterMap = new Map(queryFilters);
   const queryRangeFilters = queryFilters.filter(([_path, range]) => !isSingleValueRange(range));
   const queryEqFilters = queryFilters
     .filter(([_path, range]) => isSingleValueRange(range))
-    .map(([path, range]) => [path, range.lower!] as const);
+    .map(([path, range]) => [path, range!.lower!] as const);
 
   const queryEqFields = new Set(queryEqFilters.map(([field]) => field));
   const queryOrderFields = (
@@ -135,11 +143,11 @@ export interface QueryIterOptions {
 
 export type QueryFilters<StoreSchema extends AnyStoreSchema> = {
   readonly [K in QueryFieldsFromStore<StoreSchema>]?:
-    | KeyRange<Extract<ValueAtPath<SchemaValue<StoreSchema["value"]>, K>, ValidKey>>
+    | MaybeKeyRange<Extract<ValueAtPath<SchemaValue<StoreSchema["value"]>, K>, IDBValidKey>>
     | undefined;
 } & {
   readonly [K in QueryFieldsFromIndexes<StoreSchema> & string]?:
-    | KeyRange<Extract<ValueAtPath<SchemaValue<StoreSchema["value"]>, K>, ValidKey>>
+    | MaybeKeyRange<Extract<ValueAtPath<SchemaValue<StoreSchema["value"]>, K>, IDBValidKey>>
     | undefined;
 };
 
@@ -206,7 +214,7 @@ export type QueryOrderField<StoreSchema extends AnyStoreSchema> =
  * ```
  */
 export async function* iterateIndexesConcurrently<T>(
-  indexValues: ReadonlyArray<readonly [index: IDBObjectStore | IDBIndex, value: ValidKey]>,
+  indexValues: ReadonlyArray<readonly [index: IDBObjectStore | IDBIndex, value: IDBValidKey]>,
   postfixRanges: ReadonlyArray<IDBKeyRange | undefined> | undefined,
   primaryKeyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
   options: QueryIterOptions,
@@ -219,8 +227,8 @@ export async function* iterateIndexesConcurrently<T>(
       // For compound indexes, value can be a prefix of the indexed key.
       // In that case we want to query for all keys starting with the prefix.
       const range = Array.isArray(value)
-        ? KeyRange.bound(value, [...value, getMaxKey()])
-        : KeyRange.only(value);
+        ? IDBKeyRange.bound(value, [...value, getMaxKey()])
+        : IDBKeyRange.only(value);
       return idbReqToPromise(index.openCursor(range, direction));
     }),
   );

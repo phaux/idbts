@@ -1,4 +1,4 @@
-import { KeyRange, openDB, schema } from "idbts";
+import { openDB, schema } from "idbts";
 import { equal } from "node:assert/strict";
 import { suite, test } from "node:test";
 import { act, createElement } from "react";
@@ -27,7 +27,7 @@ suite("useDBQuery", () => {
     const db = await openDB("use-query-by-key", 1, dbSchema);
 
     function Component() {
-      const user = useDBQuery(db, "users", { where: { id: KeyRange.only(1) } })[0];
+      const user = useDBQuery(db, "users", { where: { id: 1 } })[0];
       return createElement("h1", null, user?.name ?? "No user");
     }
 
@@ -121,7 +121,7 @@ suite("useDBQuery", () => {
 
     function Component() {
       const users = useDBQuery(db, "users", {
-        where: { email: KeyRange.bound("b", "k\uFFFF") },
+        where: { email: { lower: "b", upper: "k\uFFFF" } },
         orderBy: "email",
       });
       return users.length > 0

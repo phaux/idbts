@@ -1,9 +1,7 @@
-import type { ValidKey } from "./KeyRange.ts";
-
 /**
  * Given an object type and dot-separated path strings, returns the types of the values at those paths.
  *
- * Will only return types that are valid {@link ValidKey}s.
+ * Will only return types that are valid {@link IDBValidKey}s.
  *
  * @example
  * ```ts
@@ -12,13 +10,13 @@ import type { ValidKey } from "./KeyRange.ts";
  */
 export type ValuesAtPaths<
   Value,
-  Paths extends AnyPath | null | undefined,
+  Paths extends AnyKeyPath | null | undefined,
 > = Paths extends infer P extends readonly string[]
   ? {
-      [I in keyof P]: Extract<ValueAtPath<Value, P[I]>, ValidKey>;
+      [I in keyof P]: Extract<ValueAtPath<Value, P[I]>, IDBValidKey>;
     }
   : Paths extends string
-    ? Extract<ValueAtPath<Value, Paths>, ValidKey>
+    ? Extract<ValueAtPath<Value, Paths>, IDBValidKey>
     : never;
 
 /**
@@ -41,4 +39,4 @@ export type ValueAtPath<Value, Path extends string> = Value extends {}
         : never
   : never;
 
-export type AnyPath = string | readonly string[];
+export type AnyKeyPath = string | readonly string[];

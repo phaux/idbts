@@ -17,6 +17,7 @@ export function useDBQuery<
 ): SchemaValue<Schema[StoreName]["value"]>[] {
   return useSubscribable(
     () => liveQuery(db, storeName, options),
+    // TODO: don't use JSON.stringify
     ["idbts", db.idb.name, storeName, JSON.stringify(options)],
   );
 }

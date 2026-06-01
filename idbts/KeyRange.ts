@@ -1,56 +1,38 @@
-/**
- * An alias for the global {@link IDBKeyRange} with a more strict type.
- */
-export const KeyRange: KeyRangeCtor = IDBKeyRange;
-
-export interface KeyRangeCtor {
-  prototype: KeyRange<any>;
-
-  /**
-   * Returns a new IDBKeyRange spanning from `lowerKey` to `upperKey`.
-   *
-   * If `lowerExclusive` is true, `lowerKey` is not included in the range.
-   * If `upperExclusive` is true, `upperKey` is not included in the range.
-   */
-  bound<const T extends ValidKey>(
-    lowerKey: T,
-    upperKey: T,
-    lowerExclusive?: boolean,
-    upperExclusive?: boolean,
-  ): KeyRange<T>;
-
-  /**
-   * Returns a new IDBKeyRange starting at `lowerKey` with no upper bound.
-   *
-   * If `exclusive` is true, `lowerKey` is not included in the range.
-   */
-  lowerBound<const T extends ValidKey>(lowerKey: T, exclusive?: boolean): KeyRange<T>;
-
-  /**
-   * Returns a new IDBKeyRange with no lower bound and ending at `upperKey`.
-   *
-   * If `exclusive` is true, `upperKey` is not included in the range.
-   */
-  upperBound<const T extends ValidKey>(upperKey: T, exclusive?: boolean): KeyRange<T>;
-
-  /**
-   * Returns a new IDBKeyRange spanning only `key`.
-   */
-  only<const T extends ValidKey>(key: T): KeyRange<T>;
+export interface KeyRangeObject<T extends IDBValidKey> {
+  readonly lower?: T | undefined;
+  readonly upper?: T | undefined;
+  readonly lowerOpen?: boolean | undefined;
+  readonly upperOpen?: boolean | undefined;
 }
 
-/**
- * Any valid key. Similar to {@link IDBValidKey}.
- */
-export type ValidKey = string | number | Date | BufferSource | readonly ValidKey[];
+export type MaybeKeyRange<T extends IDBValidKey> = KeyRangeObject<T> | T;
 
-/**
- * A range of keys.
- * Used to query object stores.
- */
-export interface KeyRange<out T extends ValidKey = ValidKey> extends IDBKeyRange {
-  readonly lower: T | undefined;
-  readonly upper: T | undefined;
+export function toKeyRange(maybeRange: MaybeKeyRange<IDBValidKey>): IDBKeyRange | undefined {
+  const range = toKeyRangeObject(maybeRange);
+  if (range.lower != null && range.upper != null) {
+    return IDBKeyRange.bound(range.lower, range.upper, range.lowerOpen, range.upperOpen);
+  }
+  if (range.lower != null) {
+    return IDBKeyRange.lowerBound(range.lower, range.lowerOpen);
+  }
+  if (range.upper != null) {
+    return IDBKeyRange.upperBound(range.upper, range.upperOpen);
+  }
+  return undefined;
+}
+
+function toKeyRangeObject(maybeRange: MaybeKeyRange<IDBValidKey>): KeyRangeObject<IDBValidKey> {
+  if (
+    typeof maybeRange != "object" ||
+    Array.isArray(maybeRange) ||
+    maybeRange instanceof Date ||
+    ArrayBuffer.isView(maybeRange) ||
+    maybeRange instanceof ArrayBuffer
+  ) {
+    return { lower: maybeRange, upper: maybeRange };
+  } else {
+    return maybeRange;
+  }
 }
 
 /** Returns the maximum possible key value, which is greater than all other keys. */
@@ -63,8 +45,9 @@ export const minKey: number = -Infinity;
  * Returns true if the given range represents a single value
  * (i.e. lower and upper bounds are equal and not open).
  */
-export function isSingleValueRange(range: IDBKeyRange): boolean {
+export function isSingleValueRange(range: IDBKeyRange | undefined): boolean {
   return (
+    range != null &&
     range.lower != null &&
     range.upper != null &&
     indexedDB.cmp(range.lower, range.upper) === 0 &&

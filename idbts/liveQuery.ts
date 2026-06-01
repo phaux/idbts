@@ -1,6 +1,7 @@
 import { getDBChangesChannel, type DBChange } from "./changesChannel.ts";
 import type { AnyDatabaseSchema, Database } from "./Database.ts";
 import { getValueByField, getValueByKeyPath } from "./getValueByKeyPath.ts";
+import { toKeyRange, type MaybeKeyRange } from "./KeyRange.ts";
 import { MiniObservable } from "./MiniObservable.ts";
 import { query, type QueryOptions } from "./query.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
@@ -14,7 +15,7 @@ export function liveQuery<
   options: QueryOptions<Schema[StoreName]>,
 ): MiniObservable<SchemaValue<Schema[StoreName]["value"]>[]> {
   return new MiniObservable((subscriber) => {
-    const { orderBy, direction } = options;
+    const { where, orderBy, direction } = options;
     let currentResults: any[] | undefined;
     const bufferedChanges: DBChange<any>[] = [];
 
@@ -58,7 +59,7 @@ export function liveQuery<
         }
         if (change.newValue) {
           const key = getValueByKeyPath(change.newValue, keyPath);
-          if (!options.where || queryMatches(change.newValue, options.where)) {
+          if (!where || queryMatches(change.newValue, where)) {
             currentResults = currentResults!
               .filter((item) => indexedDB.cmp(getValueByKeyPath(item, keyPath), key) !== 0)
               .concat([change.newValue])
@@ -85,9 +86,10 @@ export function liveQuery<
   });
 }
 
-function queryMatches(item: any, filters: Record<string, IDBKeyRange>): boolean {
-  for (const [key, range] of Object.entries(filters)) {
-    if (!range.includes(getValueByField(item, key))) {
+function queryMatches(item: any, filters: Record<string, MaybeKeyRange<IDBValidKey>>): boolean {
+  for (const [key, maybeRange] of Object.entries(filters)) {
+    const range = toKeyRange(maybeRange);
+    if (!range || !range.includes(getValueByField(item, key))) {
       return false;
     }
   }
