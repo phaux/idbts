@@ -1644,7 +1644,7 @@ suite("query with compound key", { concurrency: true }, async () => {
   });
 });
 
-suite("query optional fields", async () => {
+suite("query optional fields", { concurrency: true }, async () => {
   type Item = {
     email: string;
     name?: string;
@@ -1716,6 +1716,131 @@ suite("query optional fields", async () => {
           },
         }),
       { message: "Missing index on age." },
+    );
+  });
+});
+
+suite("query with multi entry index", { concurrency: true }, async () => {
+  type Post = {
+    id: number;
+    path: string[];
+    tags: string[];
+  };
+
+  const db = await openDB("query-multi", 1, {
+    posts: {
+      value: schema<Post>(),
+      keyPath: "id",
+      indexes: {
+        byPath: { keyPath: "path" },
+        byTags: { keyPath: "tags", multiEntry: true },
+      },
+    },
+  });
+
+  const data: Post[] = [
+    { id: 1, path: ["f", "b"], tags: ["foo", "bar"] },
+    { id: 2, path: ["b", "b"], tags: ["bar", "baz"] },
+    { id: 3, path: ["b"], tags: ["baz"] },
+    { id: 4, path: ["b", "q"], tags: ["baz", "qux"] },
+    { id: 5, path: ["q"], tags: ["qux"] },
+    { id: 6, path: ["q", "f"], tags: ["qux", "foo"] },
+  ];
+  await db.insert("posts", data);
+
+  expectTypeOf(query<DatabaseSchemaOf<typeof db>, "posts">)
+    .parameter(2)
+    .toEqualTypeOf<
+      QueryOptions<
+        {
+          readonly id?: KeyRange<number>;
+          readonly path?: KeyRange<string[]>;
+          readonly tags?: KeyRange<string[]>;
+        },
+        "id" | "path" | "tags"
+      >
+    >(undefined as any);
+
+  test("order by path", async () => {
+    deepEqual(
+      await query(db, "posts", {
+        orderBy: "path",
+      }),
+      [
+        { id: 3, path: ["b"], tags: ["baz"] },
+        { id: 2, path: ["b", "b"], tags: ["bar", "baz"] },
+        { id: 4, path: ["b", "q"], tags: ["baz", "qux"] },
+        { id: 1, path: ["f", "b"], tags: ["foo", "bar"] },
+        { id: 5, path: ["q"], tags: ["qux"] },
+        { id: 6, path: ["q", "f"], tags: ["qux", "foo"] },
+      ],
+    );
+  });
+
+  test("order by tag", async () => {
+    deepEqual(
+      await query(db, "posts", {
+        orderBy: "tags",
+      }),
+      [
+        // TODO: deduplicate multi entry results
+        { id: 1, path: ["f", "b"], tags: ["foo", "bar"] },
+        { id: 2, path: ["b", "b"], tags: ["bar", "baz"] },
+        { id: 2, path: ["b", "b"], tags: ["bar", "baz"] },
+        { id: 3, path: ["b"], tags: ["baz"] },
+        { id: 4, path: ["b", "q"], tags: ["baz", "qux"] },
+        { id: 1, path: ["f", "b"], tags: ["foo", "bar"] },
+        { id: 6, path: ["q", "f"], tags: ["qux", "foo"] },
+        { id: 4, path: ["b", "q"], tags: ["baz", "qux"] },
+        { id: 5, path: ["q"], tags: ["qux"] },
+        { id: 6, path: ["q", "f"], tags: ["qux", "foo"] },
+      ],
+    );
+  });
+
+  test("get by path", async () => {
+    deepEqual(
+      await query(db, "posts", {
+        where: {
+          path: KeyRange.only(["b", "q"]),
+        },
+      }),
+      [{ id: 4, path: ["b", "q"], tags: ["baz", "qux"] }],
+    );
+    deepEqual(
+      await query(db, "posts", {
+        where: {
+          path: KeyRange.only(["b"]),
+        },
+      }),
+      [{ id: 3, path: ["b"], tags: ["baz"] }],
+    );
+  });
+
+  test("get by tag", async () => {
+    deepEqual(
+      await query(db, "posts", {
+        where: {
+          // TODO: multi entry feilds aren't typed correctly
+          tags: KeyRange.only("foo" as any),
+        },
+      }),
+      [
+        { id: 1, path: ["f", "b"], tags: ["foo", "bar"] },
+        { id: 6, path: ["q", "f"], tags: ["qux", "foo"] },
+      ],
+    );
+    deepEqual(
+      await query(db, "posts", {
+        where: {
+          tags: KeyRange.only("qux" as any),
+        },
+      }),
+      [
+        { id: 4, path: ["b", "q"], tags: ["baz", "qux"] },
+        { id: 5, path: ["q"], tags: ["qux"] },
+        { id: 6, path: ["q", "f"], tags: ["qux", "foo"] },
+      ],
     );
   });
 });

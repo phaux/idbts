@@ -36,8 +36,10 @@ export async function query<
   const allIndexes = Array.from(store.indexNames).map((name) => store.index(name));
 
   const primaryKeyFields = Array.isArray(store.keyPath) ? store.keyPath : [store.keyPath!];
-  const primaryKeyRanges = primaryKeyFields.map((field) => queryFilterMap.get(field));
   const sortablePrimaryKeyFields = primaryKeyFields.filter((field) => !queryEqFields.has(field));
+  const primaryKeyRanges = Array.isArray(store.keyPath)
+    ? store.keyPath.map((field) => queryFilterMap.get(field))
+    : queryFilterMap.get(store.keyPath!);
 
   // If primary key consists of all the fields we need and begins with order fields,
   // use the store itself.
@@ -62,7 +64,9 @@ export async function query<
       indexKeyFields.every((field) => allQueryFields.has(field)) &&
       queryOrderFields.every((field, i) => sortableIndexFields[i] === field)
     ) {
-      const keyRanges = indexKeyFields.map((path) => queryFilterMap.get(path));
+      const keyRanges = Array.isArray(index.keyPath)
+        ? index.keyPath.map((path) => queryFilterMap.get(path))
+        : queryFilterMap.get(index.keyPath);
       return Array.fromAsync(iterateStoreOrIndex(index, keyRanges, primaryKeyRanges, options));
     }
 
@@ -90,7 +94,9 @@ export async function query<
         const postfixRanges = Array.isArray(indexFields)
           ? indexFields.slice(1).map((field) => queryFilterMap.get(field))
           : undefined;
-        return Array.fromAsync(zigZagQuery(indexValues, postfixRanges, primaryKeyRanges, options));
+        return Array.fromAsync(
+          iterateIndexesConcurrently(indexValues, postfixRanges, primaryKeyRanges, options),
+        );
       }
       zigZagIndexes.set(postfix, foundIndexes);
     }
@@ -194,17 +200,15 @@ export type QueryOrderField<StoreSchema extends AnyStoreSchema> =
  *
  * ```js
  * const results = await Array.fromAsync(zigZagQuery([
- *   // only first values of the compound indexes are provided
- *   // (date is omitted and will be only used for sorting)
  *   [store.index("byUserAndDate"), ["kazik"]],
  *   [store.index("byTagAndDate"), ["photography"]],
  * ]));
  * ```
  */
-export async function* zigZagQuery<T>(
+export async function* iterateIndexesConcurrently<T>(
   indexValues: ReadonlyArray<readonly [index: IDBObjectStore | IDBIndex, value: ValidKey]>,
   postfixRanges: ReadonlyArray<IDBKeyRange | undefined> | undefined,
-  primaryKeyRanges: ReadonlyArray<IDBKeyRange | undefined>,
+  primaryKeyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
   options: QueryIterOptions,
 ): AsyncGenerator<T, undefined, undefined> {
   const { direction, limit = Infinity } = options;
@@ -291,8 +295,8 @@ export async function* zigZagQuery<T>(
 
 async function* iterateStoreOrIndex<T>(
   iteratable: IDBObjectStore | IDBIndex,
-  keyRanges: ReadonlyArray<KeyRange<ValidKey> | undefined>,
-  primaryKeyRanges: ReadonlyArray<KeyRange<ValidKey> | undefined> | undefined,
+  keyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
+  primaryKeyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
   options: QueryIterOptions,
 ): AsyncGenerator<T, undefined, undefined> {
   const { direction, limit = Infinity } = options;
@@ -310,17 +314,19 @@ async function* iterateStoreOrIndex<T>(
 
 async function skipCursorOverRanges(
   cursor: IDBCursorWithValue | null,
-  keyRanges: ReadonlyArray<IDBKeyRange | undefined>,
-  primaryKeyRanges: ReadonlyArray<IDBKeyRange | undefined> | undefined,
+  keyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
+  primaryKeyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
   reverse: boolean,
 ): Promise<IDBCursorWithValue | null> {
   while (cursor) {
-    const keyMatch = matchKeyToRanges(cursor.key, keyRanges, reverse);
-    if (!keyMatch.matches) {
-      if (keyMatch.nextKey == null) cursor.continue();
-      else cursor.continue(keyMatch.nextKey);
-      cursor = await idbReqToPromise(cursor.request);
-      continue;
+    if (keyRanges) {
+      const keyMatch = matchKeyToRanges(cursor.key, keyRanges, reverse);
+      if (!keyMatch.matches) {
+        if (keyMatch.nextKey == null) cursor.continue();
+        else cursor.continue(keyMatch.nextKey);
+        cursor = await idbReqToPromise(cursor.request);
+        continue;
+      }
     }
     if (primaryKeyRanges) {
       const keyMatch = matchKeyToRanges(cursor.primaryKey, primaryKeyRanges, reverse);
@@ -338,38 +344,42 @@ async function skipCursorOverRanges(
 
 function matchKeyToRanges(
   key: IDBValidKey,
-  ranges: ReadonlyArray<IDBKeyRange | undefined>,
+  ranges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined>,
   reverse: boolean,
 ): KeyMatchResult {
-  if (Array.isArray(key)) {
-    for (let keyIdx = 0; keyIdx < key.length; keyIdx++) {
+  if ((Array.isArray as (v: unknown) => v is readonly unknown[])(ranges)) {
+    const compoundKey = Array.isArray(key) ? key : [key];
+    for (let keyIdx = 0; keyIdx < compoundKey.length; keyIdx++) {
       const range = ranges[keyIdx];
       if (!range) continue;
       const logicalRange = toLogicalRange(range, reverse);
-      const order = logicalRangeCmp(logicalRange, key[keyIdx]!, reverse);
+      const order = logicalRangeCmp(logicalRange, compoundKey[keyIdx]!, reverse);
       if (order == -2) {
-        const nextKey = key.slice(0, keyIdx);
+        const nextKey = compoundKey.slice(0, keyIdx);
         nextKey.push(logicalRange.start!);
-        if (keyIdx < key.length - 1) nextKey.push(reverse ? getMaxKey() : minKey);
+        if (keyIdx < compoundKey.length - 1) nextKey.push(reverse ? getMaxKey() : minKey);
         return { matches: false, nextKey };
       }
       if (order == -1) {
         return { matches: false, nextKey: undefined };
       }
       if (order > 0) {
-        const nextKey = key.slice(0, keyIdx);
+        const nextKey = compoundKey.slice(0, keyIdx);
         nextKey.push(reverse ? minKey : getMaxKey());
         return { matches: false, nextKey };
       }
     }
   } else {
-    const range = ranges[0];
-    if (range) {
-      const logicalRange = toLogicalRange(range, reverse);
-      const order = logicalRangeCmp(logicalRange, key, reverse);
-      if (order == -2) return { matches: false, nextKey: logicalRange.start };
-      if (order == -1) return { matches: false, nextKey: undefined };
-      else if (order > 0) return { matches: false, nextKey: reverse ? minKey : getMaxKey() };
+    const logicalRange = toLogicalRange(ranges, reverse);
+    const order = logicalRangeCmp(logicalRange, key, reverse);
+    if (order == -2) {
+      return { matches: false, nextKey: logicalRange.start };
+    }
+    if (order == -1) {
+      return { matches: false, nextKey: undefined };
+    }
+    if (order > 0) {
+      return { matches: false, nextKey: reverse ? minKey : getMaxKey() };
     }
   }
   return { matches: true };
@@ -397,9 +407,9 @@ interface LogicalKeyRange {
 /**
  * Checks the position of the key in relation to the given range:
  * - -2: key is before the range
- * - -1: key is at the start of the range (if open)
- * -  0: key is within the range
- * -  1: key is at the end of the range (if open)
+ * - -1: key is at the start of the range (if excluded)
+ * -  0: key is within the range (including boundary if inclusive)
+ * -  1: key is at the end of the range (if excluded)
  * -  2: key is after the range
  */
 function logicalRangeCmp(range: LogicalKeyRange, key: IDBValidKey, reverse: boolean) {
