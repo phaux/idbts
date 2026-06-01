@@ -1,6 +1,6 @@
 import { getDBChangesChannel, type DBChange } from "./changesChannel.ts";
 import type { AnyDatabaseSchema, Database } from "./Database.ts";
-import { getValueByField, getValueByKeyPath } from "./getValueByKeyPath.ts";
+import { getFieldValue, getKeyPathValue } from "./KeyPath.ts";
 import { toKeyRange, type MaybeKeyRange } from "./KeyRange.ts";
 import { MiniObservable } from "./MiniObservable.ts";
 import { query, type QueryOptions } from "./query.ts";
@@ -48,9 +48,9 @@ export function liveQuery<
     function applyChanges(changes: readonly DBChange<any>[]) {
       for (const change of changes) {
         if (change.oldValue) {
-          const key = getValueByKeyPath(change.oldValue, keyPath);
+          const key = getKeyPathValue(change.oldValue, keyPath);
           const index = currentResults!.findIndex(
-            (item) => indexedDB.cmp(getValueByKeyPath(item, keyPath), key) === 0,
+            (item) => indexedDB.cmp(getKeyPathValue(item, keyPath), key) === 0,
           );
           if (index >= 0) {
             currentResults = Array.from(currentResults!);
@@ -58,23 +58,23 @@ export function liveQuery<
           }
         }
         if (change.newValue) {
-          const key = getValueByKeyPath(change.newValue, keyPath);
+          const key = getKeyPathValue(change.newValue, keyPath);
           if (!where || queryMatches(change.newValue, where)) {
             currentResults = currentResults!
-              .filter((item) => indexedDB.cmp(getValueByKeyPath(item, keyPath), key) !== 0)
+              .filter((item) => indexedDB.cmp(getKeyPathValue(item, keyPath), key) !== 0)
               .concat([change.newValue])
               .sort((a, b) => {
                 for (const field of orderFields) {
-                  const aValue = getValueByField(a, field);
-                  const bValue = getValueByField(b, field);
+                  const aValue = getFieldValue(a, field);
+                  const bValue = getFieldValue(b, field);
                   let order = indexedDB.cmp(aValue, bValue);
                   if (order !== 0) {
                     if (direction === "prev") order = -order;
                     return order;
                   }
                 }
-                const aKey = getValueByKeyPath(a, keyPath);
-                const bKey = getValueByKeyPath(b, keyPath);
+                const aKey = getKeyPathValue(a, keyPath);
+                const bKey = getKeyPathValue(b, keyPath);
                 let order = indexedDB.cmp(aKey, bKey);
                 if (direction === "prev") order = -order;
                 return order;
@@ -89,7 +89,7 @@ export function liveQuery<
 function queryMatches(item: any, filters: Record<string, MaybeKeyRange<IDBValidKey>>): boolean {
   for (const [key, maybeRange] of Object.entries(filters)) {
     const range = toKeyRange(maybeRange);
-    if (!range || !range.includes(getValueByField(item, key))) {
+    if (!range || !range.includes(getFieldValue(item, key))) {
       return false;
     }
   }

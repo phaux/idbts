@@ -1,14 +1,12 @@
 import type { AnyDatabaseSchema, AnyIndexSchema, AnyStoreSchema, Database } from "./Database.ts";
-import { idbReqToPromise } from "./idbReqToPromise.ts";
 import {
-  getMaxKey,
-  isSingleValueRange,
-  type MaybeKeyRange,
-  minKey,
-  toKeyRange,
-} from "./KeyRange.ts";
+  iterateIndexesConcurrently,
+  iterateStoreOrIndex,
+  type CursorIterationOptions,
+} from "./iterateStoreOrIndex.ts";
+import type { FieldValue } from "./KeyPath.ts";
+import { isSingleValueRange, toKeyRange, type MaybeKeyRange } from "./KeyRange.ts";
 import type { SchemaValue } from "./StandardSchema.ts";
-import type { ValueAtPath } from "./ValuesAtPaths.ts";
 
 export async function query<
   const Schema extends AnyDatabaseSchema,
@@ -131,23 +129,18 @@ export async function query<
   throw new Error(`Missing index on ${missingIndexPaths.join(", ")}.`);
 }
 
-export interface QueryOptions<StoreSchema extends AnyStoreSchema> extends QueryIterOptions {
+export interface QueryOptions<StoreSchema extends AnyStoreSchema> extends CursorIterationOptions {
   readonly where?: QueryFilters<StoreSchema> | undefined;
   readonly orderBy?: QueryOrder<StoreSchema> | undefined;
 }
 
-export interface QueryIterOptions {
-  readonly direction?: "next" | "prev" | undefined;
-  readonly limit?: number | undefined;
-}
-
 export type QueryFilters<StoreSchema extends AnyStoreSchema> = {
   readonly [K in QueryFieldsFromStore<StoreSchema>]?:
-    | MaybeKeyRange<Extract<ValueAtPath<SchemaValue<StoreSchema["value"]>, K>, IDBValidKey>>
+    | MaybeKeyRange<Extract<FieldValue<SchemaValue<StoreSchema["value"]>, K>, IDBValidKey>>
     | undefined;
 } & {
   readonly [K in QueryFieldsFromIndexes<StoreSchema> & string]?:
-    | MaybeKeyRange<Extract<ValueAtPath<SchemaValue<StoreSchema["value"]>, K>, IDBValidKey>>
+    | MaybeKeyRange<Extract<FieldValue<SchemaValue<StoreSchema["value"]>, K>, IDBValidKey>>
     | undefined;
 };
 
@@ -179,260 +172,3 @@ export type QueryOrder<StoreSchema extends AnyStoreSchema> =
 export type QueryOrderField<StoreSchema extends AnyStoreSchema> =
   | QueryFieldsFromStore<StoreSchema>
   | QueryFieldsFromIndexes<StoreSchema>;
-
-/**
- * Performs a zig-zag merge join algorithm to query the given database.
- * Returns an iterator over store items filtered by given index-value pairs.
- *
- * Example:
- *
- * ```js
- * const results = await Array.fromAsync(zigZagQuery([
- *   [store.index("byUser"), "kazik"],
- *   [store.index("byTag"), "photography"],
- * ]));
- * ```
- *
- * This is equivalent to a SQL query like:
- *
- * ```sql
- * SELECT * FROM `storeName`
- * WHERE `user` = "kazik"
- * AND `tag` = "photography"
- * ```
- *
- * Filtered values can be prefixes of a compound index, not just an exact match.
- * This allows to filter by one field and sort by another.
- *
- * Example:
- *
- * ```js
- * const results = await Array.fromAsync(zigZagQuery([
- *   [store.index("byUserAndDate"), ["kazik"]],
- *   [store.index("byTagAndDate"), ["photography"]],
- * ]));
- * ```
- */
-export async function* iterateIndexesConcurrently<T>(
-  indexValues: ReadonlyArray<readonly [index: IDBObjectStore | IDBIndex, value: IDBValidKey]>,
-  postfixRanges: ReadonlyArray<IDBKeyRange | undefined> | undefined,
-  primaryKeyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
-  options: QueryIterOptions,
-): AsyncGenerator<T, undefined, undefined> {
-  const { direction, limit = Infinity } = options;
-
-  // Create a cursor for every filter.
-  let cursors = await Promise.all(
-    indexValues.map(([index, value]) => {
-      // For compound indexes, value can be a prefix of the indexed key.
-      // In that case we want to query for all keys starting with the prefix.
-      const range = Array.isArray(value)
-        ? IDBKeyRange.bound(value, [...value, getMaxKey()])
-        : IDBKeyRange.only(value);
-      return idbReqToPromise(index.openCursor(range, direction));
-    }),
-  );
-
-  let i = 0;
-  while (i < limit) {
-    // Move all cursors according to postfix and primary key ranges.
-    cursors = await Promise.all(
-      cursors.map((cursor) => {
-        // First key part is already constrained by cursor's range
-        const ranges = [undefined, ...(postfixRanges ?? [])];
-        return skipCursorOverRanges(cursor, ranges, primaryKeyRanges, direction === "prev");
-      }),
-    );
-
-    // If any cursor is null, we've reached the end.
-    if (!cursors.every((cursor) => cursor != null)) break;
-    // All cursors are pointing to some item.
-
-    const postfixes = cursors.map((cursor, i) => {
-      const prefix = indexValues[i]![1];
-      // For primitive index the postfix is just the primary key.
-      if (!Array.isArray(prefix) || !Array.isArray(cursor.key)) return [cursor.primaryKey];
-      // For compound index, the postfix is the part after the prefix.
-      const keyPostfix = cursor.key.slice(prefix.length);
-      return [...keyPostfix, cursor.primaryKey];
-    });
-
-    // Find out the largest postfix of all current items.
-    const furthestPostfix = postfixes.reduce((a, b) => {
-      let order = indexedDB.cmp(a, b);
-      if (direction === "prev") order = -order;
-      return order > 0 ? a : b;
-    });
-
-    // Check if all cursors are pointing to the same item.
-    if (postfixes.every((postfix) => indexedDB.cmp(postfix, furthestPostfix) === 0)) {
-      // If so, we found a match.
-      yield cursors[0]!.value;
-      i++;
-      // Move all cursors to their next item and repeat.
-      cursors = await Promise.all(
-        cursors.map((cursor) => {
-          cursor.continue();
-          return idbReqToPromise(cursor.request);
-        }),
-      );
-      continue;
-    }
-    // Cursors are pointing to different items.
-
-    // Try to move the cursors to the current largest postfix.
-    cursors = await Promise.all(
-      cursors.map((cursor, i) => {
-        // If the cursor is already pointing to the largest postfix, leave it as is.
-        if (indexedDB.cmp(postfixes[i]!, furthestPostfix) === 0) return cursor;
-        // Otherwise, move it to at least the largest postfix.
-        const prefix = indexValues[i]![1];
-        if (Array.isArray(prefix)) {
-          const keyPostfix = furthestPostfix.slice(0, furthestPostfix.length - 1);
-          const primaryKey = furthestPostfix[furthestPostfix.length - 1]!;
-          const key = [...prefix, ...keyPostfix];
-          cursor.continuePrimaryKey(key, primaryKey);
-        } else {
-          cursor.continuePrimaryKey(prefix as IDBValidKey, furthestPostfix[0]!);
-        }
-        return idbReqToPromise(cursor.request);
-      }),
-    );
-  }
-}
-
-async function* iterateStoreOrIndex<T>(
-  iteratable: IDBObjectStore | IDBIndex,
-  keyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
-  primaryKeyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
-  options: QueryIterOptions,
-): AsyncGenerator<T, undefined, undefined> {
-  const { direction, limit = Infinity } = options;
-  let cursor = await idbReqToPromise(iteratable.openCursor(null, direction));
-  let i = 0;
-  while (i < limit) {
-    cursor = await skipCursorOverRanges(cursor, keyRanges, primaryKeyRanges, direction === "prev");
-    if (!cursor) break;
-    yield cursor.value;
-    i++;
-    cursor.continue();
-    cursor = await idbReqToPromise(cursor.request);
-  }
-}
-
-async function skipCursorOverRanges(
-  cursor: IDBCursorWithValue | null,
-  keyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
-  primaryKeyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
-  reverse: boolean,
-): Promise<IDBCursorWithValue | null> {
-  while (cursor) {
-    if (keyRanges) {
-      const keyMatch = matchKeyToRanges(cursor.key, keyRanges, reverse);
-      if (!keyMatch.matches) {
-        if (keyMatch.nextKey == null) cursor.continue();
-        else cursor.continue(keyMatch.nextKey);
-        cursor = await idbReqToPromise(cursor.request);
-        continue;
-      }
-    }
-    if (primaryKeyRanges) {
-      const keyMatch = matchKeyToRanges(cursor.primaryKey, primaryKeyRanges, reverse);
-      if (!keyMatch.matches) {
-        if (keyMatch.nextKey == null) cursor.continue();
-        else cursor.continuePrimaryKey(cursor.key, keyMatch.nextKey);
-        cursor = await idbReqToPromise(cursor.request);
-        continue;
-      }
-    }
-    break;
-  }
-  return cursor;
-}
-
-function matchKeyToRanges(
-  key: IDBValidKey,
-  ranges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined>,
-  reverse: boolean,
-): KeyMatchResult {
-  if ((Array.isArray as (v: unknown) => v is readonly unknown[])(ranges)) {
-    const compoundKey = Array.isArray(key) ? key : [key];
-    for (let keyIdx = 0; keyIdx < compoundKey.length; keyIdx++) {
-      const range = ranges[keyIdx];
-      if (!range) continue;
-      const logicalRange = toLogicalRange(range, reverse);
-      const order = logicalRangeCmp(logicalRange, compoundKey[keyIdx]!, reverse);
-      if (order == -2) {
-        const nextKey = compoundKey.slice(0, keyIdx);
-        nextKey.push(logicalRange.start!);
-        if (keyIdx < compoundKey.length - 1) nextKey.push(reverse ? getMaxKey() : minKey);
-        return { matches: false, nextKey };
-      }
-      if (order == -1) {
-        return { matches: false, nextKey: undefined };
-      }
-      if (order > 0) {
-        const nextKey = compoundKey.slice(0, keyIdx);
-        nextKey.push(reverse ? minKey : getMaxKey());
-        return { matches: false, nextKey };
-      }
-    }
-  } else {
-    const logicalRange = toLogicalRange(ranges, reverse);
-    const order = logicalRangeCmp(logicalRange, key, reverse);
-    if (order == -2) {
-      return { matches: false, nextKey: logicalRange.start };
-    }
-    if (order == -1) {
-      return { matches: false, nextKey: undefined };
-    }
-    if (order > 0) {
-      return { matches: false, nextKey: reverse ? minKey : getMaxKey() };
-    }
-  }
-  return { matches: true };
-}
-
-interface KeyMatchResult {
-  matches: boolean;
-  nextKey?: IDBValidKey | undefined;
-}
-
-const toLogicalRange = (range: IDBKeyRange, reverse: boolean): LogicalKeyRange => ({
-  start: reverse ? range.upper : range.lower,
-  startOpen: reverse ? range.upperOpen : range.lowerOpen,
-  end: reverse ? range.lower : range.upper,
-  endOpen: reverse ? range.lowerOpen : range.upperOpen,
-});
-
-interface LogicalKeyRange {
-  start: IDBValidKey | undefined;
-  startOpen: boolean;
-  end: IDBValidKey | undefined;
-  endOpen: boolean;
-}
-
-/**
- * Checks the position of the key in relation to the given range:
- * - -2: key is before the range
- * - -1: key is at the start of the range (if excluded)
- * -  0: key is within the range (including boundary if inclusive)
- * -  1: key is at the end of the range (if excluded)
- * -  2: key is after the range
- */
-function logicalRangeCmp(range: LogicalKeyRange, key: IDBValidKey, reverse: boolean) {
-  const { start, startOpen, end, endOpen } = range;
-  if (start != null) {
-    let order = indexedDB.cmp(key, start);
-    if (reverse) order = -order;
-    if (order < 0) return -2;
-    if (startOpen && order == 0) return -1;
-  }
-  if (end != null) {
-    let order = indexedDB.cmp(key, end);
-    if (reverse) order = -order;
-    if (order > 0) return 2;
-    if (endOpen && order == 0) return 1;
-  }
-  return 0;
-}

@@ -1,8 +1,7 @@
 import { sendDBChanges, type DBChange } from "./changesChannel.ts";
-import { getValueByKeyPath } from "./getValueByKeyPath.ts";
 import { idbReqToPromise } from "./idbReqToPromise.ts";
+import { getKeyPathValue, type KeyPathValue } from "./KeyPath.ts";
 import type { SchemaValue, StandardSchema } from "./StandardSchema.ts";
-import type { ValuesAtPaths } from "./ValuesAtPaths.ts";
 
 /**
  * A schema for a {@link Database}.
@@ -28,7 +27,7 @@ export interface AnyStoreSchema {
    *
    * Used to infer the type of the primary key based on the store value.
    *
-   * @see {@link ValuesAtPaths}
+   * @see {@link KeyPathValue}
    */
   readonly keyPath: string | readonly string[];
 
@@ -49,7 +48,7 @@ export interface AnyIndexSchema {
    *
    * Used to infer the type of the index key based on the store value.
    *
-   * @see {@link ValuesAtPaths}
+   * @see {@link KeyPathValue}
    */
   readonly keyPath: string | readonly string[];
 
@@ -165,7 +164,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
         const oldValue = await idbReqToPromise(store.get(key as any));
         const newValue = updater(oldValue);
         if (newValue != null) {
-          if (indexedDB.cmp(getValueByKeyPath(newValue, store.keyPath!), key) !== 0)
+          if (indexedDB.cmp(getKeyPathValue(newValue, store.keyPath!), key) !== 0)
             throw new DOMException("Updater cannot change the primary key.", "InvalidStateError");
           await idbReqToPromise(store.put(newValue));
         } else if (oldValue != null) {
@@ -231,7 +230,7 @@ export type DatabaseSchemaOf<T> = T extends Database<infer Schema> ? Schema : ne
 /**
  * Infer the primary key type of an object store based on its schema.
  */
-export type StorePrimaryKey<Schema extends AnyStoreSchema> = ValuesAtPaths<
+export type StorePrimaryKey<Schema extends AnyStoreSchema> = KeyPathValue<
   SchemaValue<Schema["value"]>,
   Schema["keyPath"]
 >;
