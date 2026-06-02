@@ -1,9 +1,9 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { suite, test } from "node:test";
-import { liveQuery } from "./liveQuery.ts";
-import type { MiniObservable } from "./MiniObservable.ts";
-import { openDB } from "./openDB.ts";
-import { schema } from "./StandardSchema.ts";
+import { liveQuery } from "../src/liveQuery.ts";
+import type { MiniObservable } from "../src/MiniObservable.ts";
+import { openDB } from "../src/openDB.ts";
+import { schema } from "../src/StandardSchema.ts";
 
 suite("liveQuery", { concurrency: true }, async () => {
   test("buffers changes until initial query resolves", async () => {

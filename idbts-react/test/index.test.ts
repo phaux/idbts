@@ -3,7 +3,7 @@ import { equal } from "node:assert/strict";
 import { suite, test } from "node:test";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { useDBQuery } from "./index.ts";
+import { useDBQuery } from "../src/index.ts";
 
 const dbSchema = {
   users: {

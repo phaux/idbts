@@ -1,8 +1,8 @@
 import { expectTypeOf } from "expect-type";
 import { deepEqual, rejects } from "node:assert/strict";
 import { suite, test } from "node:test";
-import { openDB } from "./openDB.ts";
-import { schema } from "./StandardSchema.ts";
+import { openDB } from "../src/openDB.ts";
+import { schema } from "../src/StandardSchema.ts";
 
 suite("Database", { concurrency: true }, () => {
   test("inline key and index", async (t) => {

@@ -1,11 +1,11 @@
 import { expectTypeOf } from "expect-type";
 import { deepEqual, rejects } from "node:assert/strict";
 import { after, suite, test } from "node:test";
-import type { DatabaseSchemaOf } from "./Database.ts";
-import type { MaybeKeyRange } from "./KeyRange.ts";
-import { openDB } from "./openDB.ts";
-import { query } from "./query.ts";
-import { schema } from "./StandardSchema.ts";
+import type { DatabaseSchemaOf } from "../src/Database.ts";
+import type { MaybeKeyRange } from "../src/KeyRange.ts";
+import { openDB } from "../src/openDB.ts";
+import { query } from "../src/query.ts";
+import { schema } from "../src/StandardSchema.ts";
 
 type QueryOptions<Where, OrderBy> = {
   where?: Where | undefined;

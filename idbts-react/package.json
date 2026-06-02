@@ -1,20 +1,24 @@
 {
   "name": "idbts-react",
   "version": "0.1.0",
-  "description": "Typed IndexedDB wrapper",
+  "description": "Typed IndexedDB wrapper for React",
   "license": "ISC",
   "author": "phaux",
   "type": "module",
   "exports": {
     ".": {
-      "idbts/source": "./index.ts",
-      "default": "./index.js"
+      "idbts/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     }
   },
-  "main": "./index.js",
+  "files": [
+    "src",
+    "dist"
+  ],
   "scripts": {
     "prepare": "tsc -p tsconfig.build.json",
-    "clean": "rm *.{js,d.ts,map}",
+    "clean": "rm -r dist",
     "check": "tsc --noEmit",
     "test": "node --test --experimental-default-config-file --experimental-test-coverage --test-timeout 5000"
   },
