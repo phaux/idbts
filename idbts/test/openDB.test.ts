@@ -3,11 +3,11 @@ import { suite, test } from "node:test";
 import { openDB } from "../src/openDB.ts";
 import { schema } from "../src/StandardSchema.ts";
 
-suite("openDB", () => {
+await suite("openDB", async () => {
   type StrRecord = { id: number; str: string };
   type NumRecord = { id: number; num: number };
 
-  test("creates database with 1 store", async (t) => {
+  await test("creates database with 1 store", async (t) => {
     const onUpgradeNeeded = t.mock.fn<NonNullable<IDBOpenDBRequest["onupgradeneeded"]>>();
     const db = await openDB(
       "test-db",
@@ -24,7 +24,7 @@ suite("openDB", () => {
     deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.newVersion, 1);
   });
 
-  test("same version doesn't call onUpgradeNeeded", async (t) => {
+  await test("same version doesn't call onUpgradeNeeded", async (t) => {
     const onUpgradeNeeded = t.mock.fn<NonNullable<IDBOpenDBRequest["onupgradeneeded"]>>();
     const db = await openDB(
       "test-db",
@@ -39,7 +39,7 @@ suite("openDB", () => {
     deepEqual(onUpgradeNeeded.mock.calls.length, 0);
   });
 
-  test("upgrade adds stores", async (t) => {
+  await test("upgrade adds stores", async (t) => {
     const onUpgradeNeeded = t.mock.fn<NonNullable<IDBOpenDBRequest["onupgradeneeded"]>>();
     const db = await openDB(
       "test-db",
@@ -60,7 +60,7 @@ suite("openDB", () => {
     deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.newVersion, 2);
   });
 
-  test("upgrade adds indexes", async (t) => {
+  await test("upgrade adds indexes", async (t) => {
     const onUpgradeNeeded = t.mock.fn<NonNullable<IDBOpenDBRequest["onupgradeneeded"]>>();
     const db = await openDB(
       "test-db",
@@ -86,7 +86,7 @@ suite("openDB", () => {
     deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.newVersion, 3);
   });
 
-  test("upgrade deletes indexes", async (t) => {
+  await test("upgrade deletes indexes", async () => {
     const db = await openDB("test-db", 4, {
       strs: { keyPath: "id", value: schema<StrRecord>() },
       nums: { keyPath: "id", value: schema<NumRecord>(), indexes: { byB: { keyPath: "b" } } },
@@ -99,13 +99,13 @@ suite("openDB", () => {
     db.idb.close();
   });
 
-  test("upgrade deletes stores", async (t) => {
+  await test("upgrade deletes stores", async () => {
     const db = await openDB("test-db", 5, { nums: { keyPath: "id", value: schema<NumRecord>() } });
     deepEqual(Array.from(db.storeNames), ["nums"]);
     db.idb.close();
   });
 
-  test("downgrade errors", async (t) => {
+  await test("downgrade errors", async (t) => {
     const onUpgradeNeeded = t.mock.fn();
     await rejects(
       openDB(

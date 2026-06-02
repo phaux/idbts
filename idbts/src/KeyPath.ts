@@ -27,17 +27,17 @@ export type KeyPathValue<
  * type A = FieldValue<{ a: { b: number } }, "a.b"> // number
  * ```
  */
-export type FieldValue<Value, Path extends string> = Value extends {}
-  ? Path extends `${infer Prop}.${infer Rest}`
-    ? Prop extends keyof Value
-      ? FieldValue<Value[Prop], Rest>
-      : never
-    : Path extends ""
-      ? Value
+export type FieldValue<Value, Path extends string> = Path extends ""
+  ? Value
+  : Value extends NonNullable<unknown>
+    ? Path extends `${infer Prop}.${infer Rest}`
+      ? Prop extends keyof Value
+        ? FieldValue<Value[Prop], Rest>
+        : never
       : Path extends keyof Value
         ? Value[Path]
         : never
-  : never;
+    : never;
 
 export function getKeyPathValue(obj: unknown, keyPath: AnyKeyPath): unknown {
   if (typeof keyPath === "string") return getFieldValue(obj, keyPath);
@@ -50,6 +50,7 @@ export function getFieldValue(obj: unknown, field: string): unknown {
   for (const part of parts) {
     if (typeof current != "object" || current == null) return undefined;
     if (!Object.hasOwn(current, part)) return undefined;
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
     current = (current as any)[part];
   }
   return current;

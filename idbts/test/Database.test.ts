@@ -1,18 +1,19 @@
+/* eslint-disable @typescript-eslint/unbound-method */
 import { expectTypeOf } from "expect-type";
 import { deepEqual, rejects } from "node:assert/strict";
 import { suite, test } from "node:test";
 import { openDB } from "../src/openDB.ts";
 import { schema } from "../src/StandardSchema.ts";
 
-suite("Database", { concurrency: true }, () => {
-  test("inline key and index", async (t) => {
+await suite("Database", { concurrency: true }, async () => {
+  await test("inline key and index", async (t) => {
     type NameRecord = {
-      id: number;
-      name: string;
+      readonly id: number;
+      readonly name: string;
     };
     type DateRecord = {
-      id: number | string;
-      created: Date;
+      readonly id: number | string;
+      readonly created: Date;
     };
     const db = await openDB("inline-key+index", 1, {
       num2name: {
@@ -134,7 +135,7 @@ suite("Database", { concurrency: true }, () => {
     db.idb.close();
   });
 
-  test("deeply nested key and index", async (t) => {
+  await test("deeply nested key and index", async (t) => {
     type Record = { foo: { bar: { baz: string } } };
     const db = await openDB("deeply-nested-key+index", 1, {
       deeplyNested: {
@@ -168,11 +169,11 @@ suite("Database", { concurrency: true }, () => {
     db.idb.close();
   });
 
-  test("invalid key path - missing", async () => {
+  await test("invalid key path - missing", async () => {
     const db = await openDB("missing-key-path", 1, {
       invalid: {
         keyPath: "doesnt.exist",
-        value: schema<{}>(),
+        value: schema<object>(),
       },
     });
 
@@ -185,7 +186,7 @@ suite("Database", { concurrency: true }, () => {
     db.idb.close();
   });
 
-  test("invalid key path - boolean", async () => {
+  await test("invalid key path - boolean", async () => {
     type Record = { foo: boolean };
     const db = await openDB("boolean-key-path", 1, {
       invalid: {
@@ -203,7 +204,7 @@ suite("Database", { concurrency: true }, () => {
     db.idb.close();
   });
 
-  test("special properties - string", async () => {
+  await test("special properties - string", async () => {
     type Record = { str: string };
     const db = await openDB("special-properties-string", 1, {
       special: {
@@ -222,7 +223,7 @@ suite("Database", { concurrency: true }, () => {
     db.idb.close();
   });
 
-  test("special properties - array", async () => {
+  await test("special properties - array", async () => {
     type Record = { arr: boolean[] };
     const db = await openDB("special-properties-array", 1, {
       special: {
@@ -241,7 +242,7 @@ suite("Database", { concurrency: true }, () => {
     db.idb.close();
   });
 
-  test("array key", async (t) => {
+  await test("array key", async (t) => {
     type Record = {
       coords: [x: number, y: number];
       name?: string;
@@ -295,7 +296,7 @@ suite("Database", { concurrency: true }, () => {
     db.idb.close();
   });
 
-  test("compound key", async (t) => {
+  await test("compound key", async (t) => {
     type Record = {
       x: number;
       y: number;

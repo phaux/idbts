@@ -6,11 +6,11 @@ export class MiniObservable<T> {
   }
 
   subscribe(
-    { next }: MiniObserver<T>,
+    { next, error }: MiniObserver<T>,
     { signal }: { signal?: AbortSignal | undefined },
   ): Promise<void> {
     return new Promise((resolve) => {
-      this.#cb({ next, signal });
+      this.#cb({ next, error, signal });
       if (signal?.aborted) resolve();
       else signal?.addEventListener("abort", () => resolve());
     });
@@ -19,6 +19,7 @@ export class MiniObservable<T> {
 
 export interface MiniObserver<T> {
   next?: ((value: T) => void) | undefined;
+  error?: ((error: Error) => void) | undefined;
 }
 
 export interface MiniSubscriber<T> extends MiniObserver<T> {

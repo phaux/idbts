@@ -22,7 +22,7 @@ export async function* iterateStoreOrIndex<T>(
     yield cursor.value;
     i++;
     cursor.continue();
-    cursor = await idbReqToPromise(cursor.request);
+    cursor = await idbReqToPromise(cursor.request as IDBRequest<IDBCursorWithValue | null>);
   }
 }
 
@@ -118,7 +118,7 @@ export async function* iterateIndexesConcurrently<T>(
       cursors = await Promise.all(
         cursors.map((cursor) => {
           cursor.continue();
-          return idbReqToPromise(cursor.request);
+          return idbReqToPromise(cursor.request as IDBRequest<IDBCursorWithValue | null>);
         }),
       );
       continue;
@@ -126,7 +126,7 @@ export async function* iterateIndexesConcurrently<T>(
     // Cursors are pointing to different items.
     // Try to move the cursors to the current largest postfix.
     cursors = await Promise.all(
-      cursors.map((cursor, i) => {
+      cursors.map(async (cursor, i) => {
         // If the cursor is already pointing to the largest postfix, leave it as is.
         if (indexedDB.cmp(postfixes[i]!, furthestPostfix) === 0) return cursor;
         // Otherwise, move it to at least the largest postfix.
@@ -137,9 +137,9 @@ export async function* iterateIndexesConcurrently<T>(
           const key = [...prefix, ...keyPostfix];
           cursor.continuePrimaryKey(key, primaryKey);
         } else {
-          cursor.continuePrimaryKey(prefix as IDBValidKey, furthestPostfix[0]!);
+          cursor.continuePrimaryKey(prefix, furthestPostfix[0]!);
         }
-        return idbReqToPromise(cursor.request);
+        return idbReqToPromise(cursor.request as IDBRequest<IDBCursorWithValue | null>);
       }),
     );
   }

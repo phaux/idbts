@@ -3,7 +3,7 @@ import {
   type AnyDatabaseSchema,
   type Database,
   type QueryOptions,
-  type SchemaValue,
+  type StoreValue,
 } from "idbts";
 import { useSubscribable } from "./useSubscribable.ts";
 
@@ -14,7 +14,7 @@ export function useDBQuery<
   db: Database<Schema>,
   storeName: StoreName,
   options: QueryOptions<Schema[StoreName]>,
-): SchemaValue<Schema[StoreName]["value"]>[] {
+): StoreValue<Schema[StoreName]>[] {
   return useSubscribable(
     () => liveQuery(db, storeName, options),
     // TODO: don't use JSON.stringify

@@ -5,8 +5,8 @@ import type { MiniObservable } from "../src/MiniObservable.ts";
 import { openDB } from "../src/openDB.ts";
 import { schema } from "../src/StandardSchema.ts";
 
-suite("liveQuery", { concurrency: true }, async () => {
-  test("buffers changes until initial query resolves", async () => {
+await suite("liveQuery", { concurrency: true }, async () => {
+  await test("buffers changes until initial query resolves", async () => {
     const db = await openDB("live-query-buffering", 1, {
       items: {
         value: schema<{ id: number }>(),
@@ -26,7 +26,7 @@ suite("liveQuery", { concurrency: true }, async () => {
     db.idb.close();
   });
 
-  test("by primary key", async (t) => {
+  await test("by primary key", async (t) => {
     type Record = { n: number; s?: string };
     const db = await openDB("live-query-primary-key", 1, {
       nums: {
@@ -159,7 +159,7 @@ suite("liveQuery", { concurrency: true }, async () => {
     db.idb.close();
   });
 
-  test("by compound primary key", async (t) => {
+  await test("by compound primary key", async (t) => {
     type Record = { x: number; y: number; s?: string };
     const db = await openDB("live-query-compound-key", 1, {
       points: {
@@ -275,7 +275,7 @@ suite("liveQuery", { concurrency: true }, async () => {
     db.idb.close();
   });
 
-  test("by index", async (t) => {
+  await test("by index", async (t) => {
     type Record = { id: number; name: string; age: number };
     const db = await openDB("live-query-index", 1, {
       people: {

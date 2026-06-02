@@ -1,4 +1,5 @@
 {
+  "type": "module",
   "workspaces": [
     "idbts",
     "idbts-react"
@@ -6,14 +7,19 @@
   "scripts": {
     "prepare": "npm run prepare --ws",
     "clean": "npm run clean --ws",
+    "format": "prettier --write .",
     "check": "npm run check --ws",
+    "lint": "eslint .",
     "test": "npm test --ws"
   },
   "prettier": {
     "printWidth": 100
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.1",
     "prettier": "^3.8.3",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.60.1"
   }
 }

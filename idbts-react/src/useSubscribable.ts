@@ -6,13 +6,13 @@ export interface Subscribable<T> {
 
 export interface SubscribableObserver<T> {
   next?: (value: T) => void;
-  error?: (err: unknown) => void;
+  error?: (err: Error) => void;
   complete?: () => void;
 }
 
-const observableCache = new Map<React.DependencyList, Subscribable<any>>();
-const promiseCache = new WeakMap<Subscribable<any>, Promise<any>>();
-const valueCache = new WeakMap<Subscribable<any>, any>();
+const observableCache = new Map<React.DependencyList, Subscribable<unknown>>();
+const promiseCache = new WeakMap<Subscribable<unknown>, Promise<unknown>>();
+const valueCache = new WeakMap<Subscribable<unknown>, unknown>();
 
 const CLEANUP_DELAY = 3000; // Time to wait before cleaning up unused observables
 
@@ -80,7 +80,7 @@ export function useSubscribable<T>(
         }
         // Otherwise, emit the current value to the new subscriber if any
         else if (valueCache.has(newObservable)) {
-          observer.next?.(valueCache.get(newObservable)!);
+          observer.next?.(valueCache.get(newObservable) as T);
         }
 
         // Register the unsubscriber
@@ -125,7 +125,7 @@ export function useSubscribable<T>(
   }
 
   // Get or initialize promise for first value
-  let promise = promiseCache.get(observable);
+  let promise = promiseCache.get(observable) as Promise<T> | undefined;
   if (!promise) {
     promise = new Promise<T>((resolve, reject) => {
       const controller = new AbortController();
@@ -146,12 +146,12 @@ export function useSubscribable<T>(
   const initialValue = use(promise);
 
   const value = useRef<T>(initialValue);
-  const [error, setError] = useState<unknown>();
+  const [error, setError] = useState<Error>();
   const rerender = useReducer((x) => x + 1, 0)[1];
 
   // Set the value immediately on every render.
   // This avoids waiting for effect to run.
-  value.current = valueCache.has(observable) ? valueCache.get(observable)! : initialValue;
+  value.current = valueCache.has(observable) ? (valueCache.get(observable) as T) : initialValue;
 
   // Subscribe to live updates until the source observable changes.
   useEffect(() => {

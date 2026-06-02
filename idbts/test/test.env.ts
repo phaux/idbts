@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import "fake-indexeddb/auto";
 
 globalThis.BroadcastChannel = class FakeBroadcastChannel extends EventTarget {

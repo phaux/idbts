@@ -1,7 +1,7 @@
-import { sendDBChanges, type DBChange } from "./changesChannel.ts";
 import { idbReqToPromise } from "./idbReqToPromise.ts";
 import { getKeyPathValue, type KeyPathValue } from "./KeyPath.ts";
 import type { SchemaValue, StandardSchema } from "./StandardSchema.ts";
+import { sendStoreChanges, type StoreChange } from "./storeChangesChannel.ts";
 
 /**
  * A schema for a {@link Database}.
@@ -96,10 +96,12 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   async get<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
     key: StorePrimaryKey<Schema[StoreName]>,
-  ): Promise<SchemaValue<Schema[StoreName]["value"]> | undefined> {
+  ): Promise<StoreValue<Schema[StoreName]> | undefined> {
     const tx = this.idb.transaction(storeName, "readonly");
     const store = tx.objectStore(storeName);
-    return await idbReqToPromise(store.get(key as IDBValidKey));
+    return await idbReqToPromise(
+      store.get(key as IDBValidKey) as IDBRequest<StoreValue<Schema[StoreName]> | undefined>,
+    );
   }
 
   /**
@@ -107,10 +109,10 @@ export class Database<const Schema extends AnyDatabaseSchema> {
    */
   async getAll<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-  ): Promise<SchemaValue<Schema[StoreName]["value"]>[]> {
+  ): Promise<StoreValue<Schema[StoreName]>[]> {
     const tx = this.idb.transaction(storeName, "readonly");
     const store = tx.objectStore(storeName);
-    return await idbReqToPromise(store.getAll());
+    return await idbReqToPromise(store.getAll() as IDBRequest<StoreValue<Schema[StoreName]>[]>);
   }
 
   /**
@@ -118,20 +120,20 @@ export class Database<const Schema extends AnyDatabaseSchema> {
    */
   async insert<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    values:
-      | SchemaValue<Schema[StoreName]["value"]>
-      | readonly SchemaValue<Schema[StoreName]["value"]>[],
+    values: StoreValue<Schema[StoreName]> | ReadonlyArray<StoreValue<Schema[StoreName]>>,
   ): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
-    const valueArray = Array.isArray(values) ? values : [values];
+    const valueArray: readonly StoreValue<Schema[StoreName]>[] = Array.isArray(values)
+      ? values
+      : [values as any];
     try {
-      const changes: DBChange<any>[] = [];
+      const changes: StoreChange<Schema[StoreName]>[] = [];
       for (const value of valueArray) {
         await idbReqToPromise(store.add(value));
         changes.push({ newValue: value });
       }
-      sendDBChanges(this.idb.name, storeName, changes);
+      sendStoreChanges(this, storeName, changes);
     } catch (err) {
       tx.abort();
       throw err;
@@ -150,29 +152,31 @@ export class Database<const Schema extends AnyDatabaseSchema> {
     storeName: StoreName,
     keys:
       | Extract<StorePrimaryKey<Schema[StoreName]>, number | string>
-      | readonly StorePrimaryKey<Schema[StoreName]>[],
+      | ReadonlyArray<StorePrimaryKey<Schema[StoreName]>>,
     updater: (
-      value: Readonly<SchemaValue<Schema[StoreName]["value"]>> | undefined,
-    ) => Readonly<SchemaValue<Schema[StoreName]["value"]>> | undefined,
+      value: StoreValue<Schema[StoreName]> | undefined,
+    ) => StoreValue<Schema[StoreName]> | undefined,
   ): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
-    const keyArray = Array.isArray(keys) ? keys : [keys];
+    const keyArray: readonly IDBValidKey[] = Array.isArray(keys) ? keys : [keys];
     try {
-      const changes: DBChange<any>[] = [];
+      const changes: StoreChange<Schema[StoreName]>[] = [];
       for (const key of keyArray) {
-        const oldValue = await idbReqToPromise(store.get(key as any));
+        const oldValue = await idbReqToPromise(
+          store.get(key) as IDBRequest<StoreValue<Schema[StoreName]> | undefined>,
+        );
         const newValue = updater(oldValue);
         if (newValue != null) {
           if (indexedDB.cmp(getKeyPathValue(newValue, store.keyPath!), key) !== 0)
             throw new DOMException("Updater cannot change the primary key.", "InvalidStateError");
           await idbReqToPromise(store.put(newValue));
         } else if (oldValue != null) {
-          await idbReqToPromise(store.delete(key as any));
+          await idbReqToPromise(store.delete(key));
         }
         changes.push({ oldValue, newValue });
       }
-      sendDBChanges(this.idb.name, storeName, changes);
+      sendStoreChanges(this, storeName, changes);
     } catch (err) {
       tx.abort();
       throw err;
@@ -192,17 +196,19 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   ): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
-    const keyArray = Array.isArray(keys) ? keys : [keys];
+    const keyArray: readonly IDBValidKey[] = Array.isArray(keys) ? keys : [keys];
     try {
-      const changes: DBChange<any>[] = [];
+      const changes: StoreChange<Schema[StoreName]>[] = [];
       for (const key of keyArray) {
-        const oldValue = await idbReqToPromise(store.get(key as any));
+        const oldValue = await idbReqToPromise(
+          store.get(key) as IDBRequest<StoreValue<Schema[StoreName]> | undefined>,
+        );
         if (oldValue != null) {
-          await idbReqToPromise(store.delete(key as any));
+          await idbReqToPromise(store.delete(key));
           changes.push({ oldValue });
         }
       }
-      sendDBChanges(this.idb.name, storeName, changes);
+      sendStoreChanges(this, storeName, changes);
     } catch (err) {
       tx.abort();
       throw err;
@@ -215,17 +221,14 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   async clear<const StoreName extends keyof Schema & string>(storeName: StoreName): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
-    const oldValues = await idbReqToPromise(store.getAll());
+    const oldValues = await idbReqToPromise(
+      store.getAll() as IDBRequest<StoreValue<Schema[StoreName]>[]>,
+    );
     await idbReqToPromise(store.clear());
-    const changes: DBChange<any>[] = oldValues.map((oldValue) => ({ oldValue }));
-    sendDBChanges(this.idb.name, storeName, changes);
+    const changes: StoreChange<Schema[StoreName]>[] = oldValues.map((oldValue) => ({ oldValue }));
+    sendStoreChanges(this, storeName, changes);
   }
 }
-
-/**
- * Extracts the schema of a {@link Database}.
- */
-export type DatabaseSchemaOf<T> = T extends Database<infer Schema> ? Schema : never;
 
 /**
  * Infer the primary key type of an object store based on its schema.
@@ -234,3 +237,8 @@ export type StorePrimaryKey<Schema extends AnyStoreSchema> = KeyPathValue<
   SchemaValue<Schema["value"]>,
   Schema["keyPath"]
 >;
+
+/**
+ * Infer the value type of an object store based on its schema.
+ */
+export type StoreValue<Schema extends AnyStoreSchema> = Readonly<SchemaValue<Schema["value"]>>;

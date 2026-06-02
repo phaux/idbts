@@ -1,10 +1,9 @@
-import { getDBChangesChannel, type DBChange } from "./changesChannel.ts";
-import type { AnyDatabaseSchema, Database } from "./Database.ts";
+import type { AnyDatabaseSchema, Database, StoreValue } from "./Database.ts";
 import { getFieldValue, getKeyPathValue } from "./KeyPath.ts";
 import { toKeyRange, type MaybeKeyRange } from "./KeyRange.ts";
 import { MiniObservable } from "./MiniObservable.ts";
 import { query, type QueryOptions } from "./query.ts";
-import type { SchemaValue } from "./StandardSchema.ts";
+import { getStoreChangesChannel, type StoreChange } from "./storeChangesChannel.ts";
 
 export function liveQuery<
   const Schema extends AnyDatabaseSchema,
@@ -13,13 +12,14 @@ export function liveQuery<
   db: Database<Schema>,
   storeName: StoreName,
   options: QueryOptions<Schema[StoreName]>,
-): MiniObservable<SchemaValue<Schema[StoreName]["value"]>[]> {
+): MiniObservable<StoreValue<Schema[StoreName]>[]> {
   return new MiniObservable((subscriber) => {
-    const { where, orderBy, direction } = options;
-    let currentResults: any[] | undefined;
-    const bufferedChanges: DBChange<any>[] = [];
+    if (subscriber.signal?.aborted) return;
+    const { where = {}, orderBy = [], direction } = options;
+    let currentResults: StoreValue<Schema[StoreName]>[] | undefined;
+    const bufferedChanges: StoreChange<Schema[StoreName]>[] = [];
 
-    const changesChannel = getDBChangesChannel(db.idb.name, storeName);
+    const changesChannel = getStoreChangesChannel(db, storeName);
     changesChannel.addEventListener("message", (event) => {
       const changes = event.data;
       if (!currentResults) {
@@ -32,20 +32,30 @@ export function liveQuery<
         }
       }
     });
-    if (subscriber.signal?.aborted) changesChannel.close();
-    else subscriber.signal?.addEventListener("abort", () => changesChannel.close());
+
+    const controller = new AbortController();
+    subscriber.signal?.addEventListener("abort", () => controller.abort());
+    controller.signal.addEventListener("abort", () => changesChannel.close());
 
     const keyPath = db.idb.transaction(storeName, "readonly").objectStore(storeName).keyPath!;
-    const orderFields = Array.isArray(orderBy) ? orderBy : orderBy != null ? [orderBy] : [];
+    const orderFields = (Array.isArray as (v: unknown) => v is readonly unknown[])(orderBy)
+      ? orderBy
+      : [orderBy];
 
-    query(db, storeName, options).then((results) => {
-      currentResults = results;
-      applyChanges(bufferedChanges);
-      bufferedChanges.length = 0;
-      subscriber.next?.(currentResults);
-    });
+    query(db, storeName, options).then(
+      (results) => {
+        currentResults = results;
+        applyChanges(bufferedChanges);
+        bufferedChanges.length = 0;
+        subscriber.next?.(currentResults);
+      },
+      (err: Error) => {
+        subscriber.error?.(err);
+        controller.abort();
+      },
+    );
 
-    function applyChanges(changes: readonly DBChange<any>[]) {
+    function applyChanges(changes: readonly StoreChange<Schema[StoreName]>[]) {
       for (const change of changes) {
         if (change.oldValue) {
           const key = getKeyPathValue(change.oldValue, keyPath);
@@ -86,7 +96,7 @@ export function liveQuery<
   });
 }
 
-function queryMatches(item: any, filters: Record<string, MaybeKeyRange<IDBValidKey>>): boolean {
+function queryMatches(item: object, filters: Record<string, MaybeKeyRange<IDBValidKey>>): boolean {
   for (const [key, maybeRange] of Object.entries(filters)) {
     const range = toKeyRange(maybeRange);
     if (!range || !range.includes(getFieldValue(item, key))) {

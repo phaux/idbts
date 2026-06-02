@@ -17,6 +17,6 @@ export interface StandardSchema<T = unknown> {
 /**
  * The output type of a [StandardSchema](https://standardschema.dev/).
  */
-export type SchemaValue<Schema extends StandardSchema | undefined> = Schema extends {}
+export type SchemaValue<Schema extends StandardSchema | undefined> = Schema extends object
   ? NonNullable<Schema["~standard"]["types"]>["output"]
   : never;

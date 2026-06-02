@@ -14,7 +14,7 @@ export async function skipCursorOverRanges(
       if (!keyMatch.matches) {
         if (keyMatch.nextKey == null) cursor.continue();
         else cursor.continue(keyMatch.nextKey);
-        cursor = await idbReqToPromise(cursor.request);
+        cursor = await idbReqToPromise(cursor.request as IDBRequest<IDBCursorWithValue | null>);
         continue;
       }
     }
@@ -23,7 +23,7 @@ export async function skipCursorOverRanges(
       if (!keyMatch.matches) {
         if (keyMatch.nextKey == null) cursor.continue();
         else cursor.continuePrimaryKey(cursor.key, keyMatch.nextKey);
-        cursor = await idbReqToPromise(cursor.request);
+        cursor = await idbReqToPromise(cursor.request as IDBRequest<IDBCursorWithValue | null>);
         continue;
       }
     }

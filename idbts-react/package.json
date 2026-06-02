@@ -19,8 +19,10 @@
   "scripts": {
     "prepare": "tsc -p tsconfig.build.json",
     "clean": "rm -r dist",
+    "format": "prettier --write .",
     "check": "tsc --noEmit",
-    "test": "node --test --experimental-default-config-file --experimental-test-coverage --test-timeout 5000"
+    "lint": "eslint .",
+    "test": "node --test --experimental-default-config-file --experimental-test-coverage --test-timeout 5000 --test-force-exit"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.0.2",

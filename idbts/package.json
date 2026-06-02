@@ -19,7 +19,9 @@
   "scripts": {
     "prepare": "tsc -p tsconfig.build.json",
     "clean": "rm -r dist",
+    "format": "prettier --write .",
     "check": "tsc --noEmit",
+    "lint": "eslint .",
     "test": "node --test --import ./test/test.env.ts --test-reporter spec --test-reporter-destination stdout --experimental-test-coverage --test-reporter lcov --test-reporter-destination lcov.info --test-timeout 3000"
   },
   "devDependencies": {

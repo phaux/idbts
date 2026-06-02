@@ -100,6 +100,7 @@ export function openDB<const T extends AnyDatabaseSchema>(
         // Call user's callback.
         options?.onUpgradeNeeded?.call(this, ev);
       } catch (error) {
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
         reject(error);
       }
     };

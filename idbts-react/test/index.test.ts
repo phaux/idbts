@@ -19,11 +19,11 @@ const dbSchema = {
   },
 } as const;
 
-suite("useDBQuery", () => {
+await suite("useDBQuery", async () => {
   const container = document.createElement("div");
   document.body.appendChild(container);
 
-  test("query by primary key", async () => {
+  await test("query by primary key", async () => {
     const db = await openDB("use-query-by-key", 1, dbSchema);
 
     function Component() {
@@ -36,25 +36,25 @@ suite("useDBQuery", () => {
       root.render(createElement(Component));
     });
 
-    equal(container.querySelector("h1")!.textContent, "No user");
+    equal(container.querySelector("h1")?.textContent, "No user");
 
     await act(async () => {
       await db.insert("users", { id: 1, name: "Alice", email: "alice@example.com" });
     });
 
-    equal(container.querySelector("h1")!.textContent, "Alice");
+    equal(container.querySelector("h1")?.textContent, "Alice");
 
     await act(async () => {
       await db.update("users", 1, (entry) => ({ ...entry!, name: "Alice Updated" }));
     });
 
-    equal(container.querySelector("h1")!.textContent, "Alice Updated");
+    equal(container.querySelector("h1")?.textContent, "Alice Updated");
 
     await act(async () => {
       await db.delete("users", 1);
     });
 
-    equal(container.querySelector("h1")!.textContent, "No user");
+    equal(container.querySelector("h1")?.textContent, "No user");
 
     await act(async () => {
       root.unmount();
@@ -63,7 +63,7 @@ suite("useDBQuery", () => {
     db.idb.close();
   });
 
-  test("query all", async () => {
+  await test("query all", async () => {
     const db = await openDB("use-query-all", 1, dbSchema);
 
     function Component() {
@@ -116,7 +116,7 @@ suite("useDBQuery", () => {
     db.idb.close();
   });
 
-  test("query by field", async () => {
+  await test("query by field", async () => {
     const db = await openDB("use-query-by-field", 1, dbSchema);
 
     function Component() {

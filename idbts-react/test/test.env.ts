@@ -1,9 +1,10 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import "fake-indexeddb/auto";
 
 if (!GlobalRegistrator.isRegistered) GlobalRegistrator.register();
 
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 globalThis.BroadcastChannel = class FakeBroadcastChannel extends EventTarget {
   static #channels = new Map<string, Set<FakeBroadcastChannel>>();

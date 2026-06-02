@@ -1,7 +1,8 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { expectTypeOf } from "expect-type";
 import { deepEqual, rejects } from "node:assert/strict";
 import { after, suite, test } from "node:test";
-import type { DatabaseSchemaOf } from "../src/Database.ts";
+import type { AnyDatabaseSchema } from "../src/Database.ts";
 import type { MaybeKeyRange } from "../src/KeyRange.ts";
 import { openDB } from "../src/openDB.ts";
 import { query } from "../src/query.ts";
@@ -14,7 +15,7 @@ type QueryOptions<Where, OrderBy> = {
   direction?: "next" | "prev" | undefined;
 };
 
-suite("query", { concurrency: true }, async () => {
+await suite("query", { concurrency: true }, async () => {
   type Person = {
     id: number;
     name: { first: string; last: string };
@@ -23,7 +24,7 @@ suite("query", { concurrency: true }, async () => {
     level?: number;
   };
 
-  const db = await openDB("query-simple", 1, {
+  const dbSchema = {
     people: {
       value: schema<Person>(),
       keyPath: "id",
@@ -40,7 +41,9 @@ suite("query", { concurrency: true }, async () => {
         byIdAndLastName: { keyPath: ["id", "name.last"] },
       },
     },
-  });
+  } as const satisfies AnyDatabaseSchema;
+
+  const db = await openDB("query-simple", 1, dbSchema);
 
   const data = [
     /*  0 */ { id: 1, name: { first: "Alicja", last: "Nowak" }, age: 30, points: 1420 },
@@ -62,7 +65,7 @@ suite("query", { concurrency: true }, async () => {
 
   await db.insert("people", data);
 
-  expectTypeOf(query<DatabaseSchemaOf<typeof db>, "people">)
+  expectTypeOf(query<typeof dbSchema, "people">)
     .parameter(2)
     .toEqualTypeOf<
       QueryOptions<
@@ -75,49 +78,49 @@ suite("query", { concurrency: true }, async () => {
         },
         "id" | "name.first" | "name.last" | "age" | "points"
       >
-    >(undefined as any);
+    >(undefined as never);
 
-  test("get all", async () => {
+  await test("get all", async () => {
     deepEqual(await query(db, "people", {}), data);
   });
 
-  test("get all reversed", async () => {
+  await test("get all reversed", async () => {
     deepEqual(await query(db, "people", { direction: "prev" }), [...data].reverse());
   });
 
-  test("get all with limit", async () => {
+  await test("get all with limit", async () => {
     deepEqual(await query(db, "people", { limit: 5 }), data.slice(0, 5));
   });
 
-  test("get all with limit reversed", async () => {
+  await test("get all with limit reversed", async () => {
     deepEqual(
       await query(db, "people", { limit: 5, direction: "prev" }),
       data.toReversed().slice(0, 5),
     );
   });
 
-  test("get all ordered", async () => {
+  await test("get all ordered", async () => {
     deepEqual(
       await query(db, "people", { orderBy: "name.first" }),
       data.toSorted((a, b) => a.name.first.localeCompare(b.name.first)),
     );
   });
 
-  test("get all ordered reversed", async () => {
+  await test("get all ordered reversed", async () => {
     deepEqual(
       await query(db, "people", { orderBy: "name.first", direction: "prev" }),
       data.toSorted((a, b) => a.name.first.localeCompare(b.name.first)).reverse(),
     );
   });
 
-  test("get all ordered with limit", async () => {
+  await test("get all ordered with limit", async () => {
     deepEqual(
       await query(db, "people", { orderBy: "name.first", limit: 5 }),
       data.toSorted((a, b) => a.name.first.localeCompare(b.name.first)).slice(0, 5),
     );
   });
 
-  test("get all ordered with limit reversed", async () => {
+  await test("get all ordered with limit reversed", async () => {
     deepEqual(
       await query(db, "people", { orderBy: "name.first", limit: 5, direction: "prev" }),
       data
@@ -127,7 +130,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get all ordered with invalid order", async () => {
+  await test("get all ordered with invalid order", async () => {
     await rejects(
       () =>
         query(db, "people", {
@@ -137,7 +140,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by key equality", async () => {
+  await test("get by key equality", async () => {
     deepEqual(
       await query(db, "people", {
         where: { id: 1 },
@@ -158,7 +161,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by key equality reversed", async () => {
+  await test("get by key equality reversed", async () => {
     deepEqual(
       await query(db, "people", {
         where: { id: 1 },
@@ -168,7 +171,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by key equality with limit", async () => {
+  await test("get by key equality with limit", async () => {
     deepEqual(
       await query(db, "people", {
         where: { id: 3 },
@@ -185,7 +188,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by key equality with order", async () => {
+  await test("get by key equality with order", async () => {
     deepEqual(
       await query(db, "people", {
         where: { id: 7 },
@@ -203,7 +206,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by key equality and field equality", async () => {
+  await test("get by key equality and field equality", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -224,7 +227,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by key range", async () => {
+  await test("get by key range", async () => {
     deepEqual(
       await query(db, "people", {
         where: { id: IDBKeyRange.bound(9, 13) },
@@ -251,7 +254,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by key range reversed", async () => {
+  await test("get by key range reversed", async () => {
     deepEqual(
       await query(db, "people", {
         where: { id: { lower: 13, upper: 17 } },
@@ -261,7 +264,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by key range with limit", async () => {
+  await test("get by key range with limit", async () => {
     deepEqual(
       await query(db, "people", {
         where: { id: { lower: 3, upper: 12 } },
@@ -271,7 +274,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by key range with limit reversed", async () => {
+  await test("get by key range with limit reversed", async () => {
     deepEqual(
       await query(db, "people", {
         where: { id: { lower: 4, upper: 16 } },
@@ -282,7 +285,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by key range ordered", async () => {
+  await test("get by key range ordered", async () => {
     deepEqual(
       await query(db, "people", {
         where: { id: { lower: 3, upper: 12 } },
@@ -292,7 +295,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by key range and field range", async () => {
+  await test("get by key range and field range", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -304,7 +307,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field equality", async () => {
+  await test("get by field equality", async () => {
     deepEqual(
       await query(db, "people", {
         where: { "name.first": "Piotr" },
@@ -319,7 +322,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field equality reversed", async () => {
+  await test("get by field equality reversed", async () => {
     deepEqual(
       await query(db, "people", {
         where: { "name.first": "Piotr" },
@@ -329,7 +332,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field equality with matching order", async () => {
+  await test("get by field equality with matching order", async () => {
     deepEqual(
       await query(db, "people", {
         where: { "name.first": "Piotr" },
@@ -339,7 +342,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field equality with non-matching order", async () => {
+  await test("get by field equality with non-matching order", async () => {
     deepEqual(
       await query(db, "people", {
         where: { "name.last": "Nowak" },
@@ -349,7 +352,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field equality with limit", async () => {
+  await test("get by field equality with limit", async () => {
     deepEqual(
       await query(db, "people", {
         where: { "name.last": "Nowak" },
@@ -359,7 +362,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by invalid field equality", async () => {
+  await test("get by invalid field equality", async () => {
     await rejects(
       () =>
         query(db, "people", {
@@ -369,7 +372,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field equality with invalid order", async () => {
+  await test("get by field equality with invalid order", async () => {
     await rejects(
       () =>
         query(db, "people", {
@@ -380,7 +383,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field equality with non-exact index", async () => {
+  await test("get by field equality with non-exact index", async () => {
     await rejects(
       () =>
         query(db, "people", {
@@ -390,7 +393,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field range", async () => {
+  await test("get by field range", async () => {
     deepEqual(
       await query(db, "people", {
         where: { "name.first": { lower: "P", upper: "S\uffff" } },
@@ -405,7 +408,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field range reversed", async () => {
+  await test("get by field range reversed", async () => {
     deepEqual(
       await query(db, "people", {
         where: { "name.first": { lower: "P", upper: "S\uffff" } },
@@ -415,7 +418,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field range with matching order ", async () => {
+  await test("get by field range with matching order ", async () => {
     deepEqual(
       await query(db, "people", {
         where: { "name.first": { upper: "B\uffff" } },
@@ -433,7 +436,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field range with non-matching order", async () => {
+  await test("get by field range with non-matching order", async () => {
     deepEqual(
       await query(db, "people", {
         where: { "name.last": { lower: "A", upper: "M\uffff" } },
@@ -443,7 +446,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field range with limit", async () => {
+  await test("get by field range with limit", async () => {
     deepEqual(
       await query(db, "people", {
         where: { "name.first": { lower: "A", upper: "M\uffff" } },
@@ -454,7 +457,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field range with limit reversed", async () => {
+  await test("get by field range with limit reversed", async () => {
     deepEqual(
       await query(db, "people", {
         where: { "name.last": { lower: "A", upper: "M\uffff" } },
@@ -474,7 +477,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by invalid field range", async () => {
+  await test("get by invalid field range", async () => {
     await rejects(
       () =>
         query(db, "people", {
@@ -484,7 +487,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field range with invalid order", async () => {
+  await test("get by field range with invalid order", async () => {
     await rejects(
       () =>
         query(db, "people", {
@@ -495,7 +498,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field equality", async () => {
+  await test("get by multi field equality", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -526,7 +529,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field equality reversed", async () => {
+  await test("get by multi field equality reversed", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -539,7 +542,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field equality with limit", async () => {
+  await test("get by multi field equality with limit", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -552,7 +555,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by invalid multi field equality", async () => {
+  await test("get by invalid multi field equality", async () => {
     await rejects(
       () =>
         query(db, "people", {
@@ -565,7 +568,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field equality with non-exact index", async () => {
+  await test("get by multi field equality with non-exact index", async () => {
     await rejects(
       () =>
         query(db, "people", {
@@ -578,7 +581,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field equality with order", async () => {
+  await test("get by multi field equality with order", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -601,7 +604,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field equality with order reversed", async () => {
+  await test("get by multi field equality with order reversed", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -615,8 +618,8 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field equality with invalid order", async () => {
-    rejects(
+  await test("get by multi field equality with invalid order", async () => {
+    await rejects(
       () =>
         query(db, "people", {
           where: {
@@ -629,7 +632,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field equality and range", async () => {
+  await test("get by field equality and range", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -668,7 +671,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field equality and range", async () => {
+  await test("get by multi field equality and range", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -681,7 +684,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field equality and range reversed", async () => {
+  await test("get by field equality and range reversed", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -694,7 +697,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field equality and range reversed", async () => {
+  await test("get by multi field equality and range reversed", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -708,7 +711,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field equality and range with limit", async () => {
+  await test("get by field equality and range with limit", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -721,7 +724,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field equality and range with limit reversed", async () => {
+  await test("get by multi field equality and range with limit reversed", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -736,7 +739,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field equality and multi range", async () => {
+  await test("get by field equality and multi range", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -759,7 +762,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by invalid field equality and range", async () => {
+  await test("get by invalid field equality and range", async () => {
     await rejects(
       () =>
         query(db, "people", {
@@ -793,7 +796,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by invalid multi field equality and range", async () => {
+  await test("get by invalid multi field equality and range", async () => {
     await rejects(
       () =>
         query(db, "people", {
@@ -807,7 +810,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field equality and range with matching order", async () => {
+  await test("get by field equality and range with matching order", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -820,7 +823,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field equality and range with matching order", async () => {
+  await test("get by multi field equality and range with matching order", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -835,7 +838,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field equality and range with non-matching order", async () => {
+  await test("get by field equality and range with non-matching order", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -858,7 +861,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field range", async () => {
+  await test("get by multi field range", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -909,7 +912,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field range reversed", async () => {
+  await test("get by multi field range reversed", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -933,7 +936,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field range with matching order", async () => {
+  await test("get by multi field range with matching order", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -987,7 +990,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field range with non-matching order", async () => {
+  await test("get by multi field range with non-matching order", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -1000,8 +1003,8 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by invalid multi field range", async () => {
-    rejects(
+  await test("get by invalid multi field range", async () => {
+    await rejects(
       () =>
         query(db, "people", {
           where: {
@@ -1012,7 +1015,7 @@ suite("query", { concurrency: true }, async () => {
         }),
       { message: "Missing index on name.first+age." },
     );
-    rejects(
+    await rejects(
       () =>
         query(db, "people", {
           where: {
@@ -1025,7 +1028,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field range and key range", async () => {
+  await test("get by multi field range and key range", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -1058,7 +1061,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field range and key range reversed", async () => {
+  await test("get by multi field range and key range reversed", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -1083,7 +1086,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by multi field equality and key range", async () => {
+  await test("get by multi field equality and key range", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -1117,7 +1120,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field range with invalid order by key", async () => {
+  await test("get by field range with invalid order by key", async () => {
     await rejects(
       () =>
         query(db, "people", {
@@ -1132,7 +1135,7 @@ suite("query", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field range with order by key", async () => {
+  await test("get by field range with order by key", async () => {
     deepEqual(
       await query(db, "people", {
         where: {
@@ -1160,7 +1163,7 @@ suite("query", { concurrency: true }, async () => {
   });
 });
 
-suite("query with compound key", { concurrency: true }, async () => {
+await suite("query with compound key", { concurrency: true }, async () => {
   type Point = {
     x: number;
     y: number;
@@ -1169,7 +1172,7 @@ suite("query with compound key", { concurrency: true }, async () => {
     t: string;
   };
 
-  const db = await openDB("query-comp-key", 1, {
+  const dbSchema = {
     points: {
       value: schema<Point>(),
       keyPath: ["x", "y", "z"],
@@ -1178,7 +1181,9 @@ suite("query with compound key", { concurrency: true }, async () => {
         byType: { keyPath: ["t"] },
       },
     },
-  });
+  } as const satisfies AnyDatabaseSchema;
+
+  const db = await openDB("query-comp-key", 1, dbSchema);
 
   await db.insert(
     "points",
@@ -1196,7 +1201,7 @@ suite("query with compound key", { concurrency: true }, async () => {
 
   await db.insert("points", { x: 0, y: 0, z: 0, t: "dot", n: "origin" });
 
-  expectTypeOf(query<DatabaseSchemaOf<typeof db>, "points">)
+  expectTypeOf(query<typeof dbSchema, "points">)
     .parameter(2)
     .toEqualTypeOf<
       QueryOptions<
@@ -1209,9 +1214,9 @@ suite("query with compound key", { concurrency: true }, async () => {
         },
         "x" | "y" | "z" | "n" | "t"
       >
-    >(undefined as any);
+    >(undefined as never);
 
-  test("get by all primary fields", async () => {
+  await test("get by all primary fields", async () => {
     deepEqual(
       await query(db, "points", {
         where: {
@@ -1234,7 +1239,7 @@ suite("query with compound key", { concurrency: true }, async () => {
     );
   });
 
-  test("get by some primary fields", async () => {
+  await test("get by some primary fields", async () => {
     deepEqual(
       await query(db, "points", {
         where: {
@@ -1273,7 +1278,7 @@ suite("query with compound key", { concurrency: true }, async () => {
     );
   });
 
-  test("get by some primary fields ordered", async () => {
+  await test("get by some primary fields ordered", async () => {
     deepEqual(
       await query(db, "points", {
         where: {
@@ -1332,7 +1337,7 @@ suite("query with compound key", { concurrency: true }, async () => {
     );
   });
 
-  test("get by single primary field", async () => {
+  await test("get by single primary field", async () => {
     deepEqual(
       await query(db, "points", {
         where: {
@@ -1388,7 +1393,7 @@ suite("query with compound key", { concurrency: true }, async () => {
     );
   });
 
-  test("get by primary field range", async () => {
+  await test("get by primary field range", async () => {
     deepEqual(
       await query(db, "points", {
         where: {
@@ -1471,7 +1476,7 @@ suite("query with compound key", { concurrency: true }, async () => {
     );
   });
 
-  test("get by primary fields with order on field", async () => {
+  await test("get by primary fields with order on field", async () => {
     deepEqual(
       await query(db, "points", {
         where: {
@@ -1485,7 +1490,7 @@ suite("query with compound key", { concurrency: true }, async () => {
     );
   });
 
-  test("get by primary field ranges with order on field", async () => {
+  await test("get by primary field ranges with order on field", async () => {
     deepEqual(
       await query(db, "points", {
         where: {
@@ -1517,7 +1522,7 @@ suite("query with compound key", { concurrency: true }, async () => {
     );
   });
 
-  test("get by primary field ranges and field range", async () => {
+  await test("get by primary field ranges and field range", async () => {
     deepEqual(
       await query(db, "points", {
         where: {
@@ -1532,7 +1537,7 @@ suite("query with compound key", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field equality", async () => {
+  await test("get by field equality", async () => {
     deepEqual(
       await query(db, "points", {
         where: {
@@ -1567,7 +1572,7 @@ suite("query with compound key", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field equality ordered", async () => {
+  await test("get by field equality ordered", async () => {
     deepEqual(
       await query(db, "points", {
         where: {
@@ -1605,7 +1610,7 @@ suite("query with compound key", { concurrency: true }, async () => {
     );
   });
 
-  test("get by field equality with invalid order", async () => {
+  await test("get by field equality with invalid order", async () => {
     await rejects(
       () =>
         query(db, "points", {
@@ -1644,14 +1649,14 @@ suite("query with compound key", { concurrency: true }, async () => {
   });
 });
 
-suite("query optional fields", { concurrency: true }, async () => {
+await suite("query optional fields", { concurrency: true }, async () => {
   type Item = {
     email: string;
     name?: string;
     age?: number;
   };
 
-  const db = await openDB("query-opt", 1, {
+  const dbSchema = {
     items: {
       value: schema<Item>(),
       keyPath: "email",
@@ -1660,7 +1665,9 @@ suite("query optional fields", { concurrency: true }, async () => {
         byNameAndAge: { keyPath: ["name", "age"] },
       },
     },
-  });
+  } as const satisfies AnyDatabaseSchema;
+
+  const db = await openDB("query-opt", 1, dbSchema);
 
   const data: Item[] = [
     { email: "a@example.com", name: "Alice" },
@@ -1669,7 +1676,7 @@ suite("query optional fields", { concurrency: true }, async () => {
   ];
   await db.insert("items", data);
 
-  expectTypeOf(query<DatabaseSchemaOf<typeof db>, "items">)
+  expectTypeOf(query<typeof dbSchema, "items">)
     .parameter(2)
     .toEqualTypeOf<
       QueryOptions<
@@ -1680,9 +1687,9 @@ suite("query optional fields", { concurrency: true }, async () => {
         },
         "email" | "name" | "age"
       >
-    >(undefined as any);
+    >(undefined as never);
 
-  test("order by email", async () => {
+  await test("order by email", async () => {
     deepEqual(
       await query(db, "items", {
         orderBy: "email",
@@ -1691,7 +1698,7 @@ suite("query optional fields", { concurrency: true }, async () => {
     );
   });
 
-  test("order by name", async () => {
+  await test("order by name", async () => {
     deepEqual(
       await query(db, "items", {
         orderBy: "name",
@@ -1700,7 +1707,7 @@ suite("query optional fields", { concurrency: true }, async () => {
     );
   });
 
-  test("order by age", async () => {
+  await test("order by age", async () => {
     await rejects(
       () =>
         query(db, "items", {
@@ -1720,14 +1727,14 @@ suite("query optional fields", { concurrency: true }, async () => {
   });
 });
 
-suite("query with multi entry index", { concurrency: true }, async () => {
+await suite("query with multi entry index", { concurrency: true }, async () => {
   type Post = {
     id: number;
     path: string[];
     tags: string[];
   };
 
-  const db = await openDB("query-multi", 1, {
+  const dbSchema = {
     posts: {
       value: schema<Post>(),
       keyPath: "id",
@@ -1736,7 +1743,9 @@ suite("query with multi entry index", { concurrency: true }, async () => {
         byTags: { keyPath: "tags", multiEntry: true },
       },
     },
-  });
+  } as const satisfies AnyDatabaseSchema;
+
+  const db = await openDB("query-multi", 1, dbSchema);
 
   const data: Post[] = [
     { id: 1, path: ["f", "b"], tags: ["foo", "bar"] },
@@ -1748,7 +1757,7 @@ suite("query with multi entry index", { concurrency: true }, async () => {
   ];
   await db.insert("posts", data);
 
-  expectTypeOf(query<DatabaseSchemaOf<typeof db>, "posts">)
+  expectTypeOf(query<typeof dbSchema, "posts">)
     .parameter(2)
     .toEqualTypeOf<
       QueryOptions<
@@ -1759,9 +1768,9 @@ suite("query with multi entry index", { concurrency: true }, async () => {
         },
         "id" | "path" | "tags"
       >
-    >(undefined as any);
+    >(undefined as never);
 
-  test("order by path", async () => {
+  await test("order by path", async () => {
     deepEqual(
       await query(db, "posts", {
         orderBy: "path",
@@ -1777,7 +1786,7 @@ suite("query with multi entry index", { concurrency: true }, async () => {
     );
   });
 
-  test("order by tag", async () => {
+  await test("order by tag", async () => {
     deepEqual(
       await query(db, "posts", {
         orderBy: "tags",
@@ -1798,7 +1807,7 @@ suite("query with multi entry index", { concurrency: true }, async () => {
     );
   });
 
-  test("get by path", async () => {
+  await test("get by path", async () => {
     deepEqual(
       await query(db, "posts", {
         where: {
@@ -1817,7 +1826,7 @@ suite("query with multi entry index", { concurrency: true }, async () => {
     );
   });
 
-  test("get by tag", async () => {
+  await test("get by tag", async () => {
     deepEqual(
       await query(db, "posts", {
         where: {

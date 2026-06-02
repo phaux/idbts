@@ -24,9 +24,9 @@ export async function query<
     ([path, range]) => [path, toKeyRange(range)] as const,
   );
   const queryFilterMap = new Map(queryFilters);
-  const queryRangeFilters = queryFilters.filter(([_path, range]) => !isSingleValueRange(range));
+  const queryRangeFilters = queryFilters.filter(([, range]) => !isSingleValueRange(range));
   const queryEqFilters = queryFilters
-    .filter(([_path, range]) => isSingleValueRange(range))
+    .filter(([, range]) => isSingleValueRange(range))
     .map(([path, range]) => [path, range!.lower!] as const);
 
   const queryEqFields = new Set(queryEqFilters.map(([field]) => field));
@@ -94,7 +94,7 @@ export async function query<
         const indexValues = queryIndexes.map((index) =>
           Array.isArray(index.keyPath)
             ? ([index, [queryFilterMap.get(index.keyPath[0]!)!.lower!]] as const)
-            : ([index, queryFilterMap.get(index.keyPath!)!.lower!] as const),
+            : ([index, queryFilterMap.get(index.keyPath)!.lower!] as const),
         );
         const indexFields = queryIndexes[0]!.keyPath;
         const postfixRanges = Array.isArray(indexFields)
@@ -152,7 +152,7 @@ export type QueryFieldsFromStore<StoreSchema extends AnyStoreSchema> =
       : never;
 
 export type QueryFieldsFromIndexes<StoreSchema extends AnyStoreSchema> =
-  StoreSchema["indexes"] extends {}
+  StoreSchema["indexes"] extends object
     ? {
         [I in keyof StoreSchema["indexes"]]: QueryFieldsFromIndex<StoreSchema["indexes"][I]>;
       }[keyof StoreSchema["indexes"]]

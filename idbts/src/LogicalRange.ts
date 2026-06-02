@@ -1,7 +1,7 @@
 export const toLogicalRange = (range: IDBKeyRange, reverse: boolean): LogicalKeyRange => ({
-  start: reverse ? range.upper : range.lower,
+  start: (reverse ? range.upper : range.lower) as IDBValidKey | undefined,
   startOpen: reverse ? range.upperOpen : range.lowerOpen,
-  end: reverse ? range.lower : range.upper,
+  end: (reverse ? range.lower : range.upper) as IDBValidKey | undefined,
   endOpen: reverse ? range.lowerOpen : range.upperOpen,
 });
 
