@@ -83,14 +83,64 @@ await suite("Database", { concurrency: true }, async () => {
 
     await t.test("update can create entry", async () => {
       deepEqual(await db.get("num2name", 2), undefined);
-      await db.update("num2name", 2, () => ({ id: 2, name: "new!" }));
-      deepEqual(await db.get("num2name", 2), { id: 2, name: "new!" });
+      await db.update("num2name", 2, () => ({ id: 2, name: "new?" }));
+      deepEqual(await db.get("num2name", 2), { id: 2, name: "new?" });
+    });
+
+    await t.test("upsert", async () => {
+      await db.upsert("num2name", { id: 1, name: "foo!" });
+      deepEqual(await db.get("num2name", 1), { id: 1, name: "foo!" });
+      await db.upsert("num2name", { id: 3, name: "another!" });
+      deepEqual(await db.get("num2name", 3), { id: 3, name: "another!" });
+    });
+
+    await t.test("upsert many", async () => {
+      await db.upsert(
+        "num2name",
+        [
+          { id: 1, name: "foo?" },
+          { id: 2, name: "new?" },
+        ],
+        (oldValue, newValue) => ({ id: oldValue.id, name: newValue.name + "!" }),
+      );
+      deepEqual(await db.get("num2name", 1), { id: 1, name: "foo?!" });
+      deepEqual(await db.get("num2name", 2), { id: 2, name: "new?!" });
+    });
+
+    await t.test("upsert many rollbacks if updater throws", async () => {
+      await rejects(() =>
+        db.upsert(
+          "num2name",
+          [
+            { id: 1, name: "foo~" },
+            { id: 2, name: "new~" },
+          ],
+          (oldValue, newValue) => {
+            if (oldValue.id === 2) {
+              throw new Error("fail");
+            }
+            return { id: oldValue.id, name: newValue.name + "!" };
+          },
+        ),
+      );
+      deepEqual(await db.get("num2name", 1), { id: 1, name: "foo?!" });
+      deepEqual(await db.get("num2name", 2), { id: 2, name: "new?!" });
+    });
+
+    await t.test("upsert throws if key changed", async () => {
+      await rejects(() =>
+        db.upsert("num2name", { id: 1, name: "foo!" }, (oldValue, newValue) => ({
+          ...oldValue,
+          ...newValue,
+          id: 2,
+        })),
+      );
     });
 
     await t.test("update many", async () => {
       await db.update("num2name", [1, 2], (value) => ({ id: value!.id, name: value!.name + "?" }));
-      deepEqual(await db.get("num2name", 1), { id: 1, name: "foo!?" });
-      deepEqual(await db.get("num2name", 2), { id: 2, name: "new!?" });
+      deepEqual(await db.get("num2name", 1), { id: 1, name: "foo?!?" });
+      deepEqual(await db.get("num2name", 2), { id: 2, name: "new?!?" });
     });
 
     await t.test("update many rollbacks if one fails", async () => {
@@ -102,8 +152,8 @@ await suite("Database", { concurrency: true }, async () => {
           return { id: value!.id, name: value!.name + "." };
         }),
       );
-      deepEqual(await db.get("num2name", 1), { id: 1, name: "foo!?" });
-      deepEqual(await db.get("num2name", 2), { id: 2, name: "new!?" });
+      deepEqual(await db.get("num2name", 1), { id: 1, name: "foo?!?" });
+      deepEqual(await db.get("num2name", 2), { id: 2, name: "new?!?" });
     });
 
     await t.test("update can delete entry", async () => {

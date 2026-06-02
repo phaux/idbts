@@ -117,6 +117,8 @@ export class Database<const Schema extends AnyDatabaseSchema> {
 
   /**
    * Inserts a new object or objects into the store.
+   *
+   * Throws an error if an object with the same primary key already exists.
    */
   async insert<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
@@ -132,6 +134,48 @@ export class Database<const Schema extends AnyDatabaseSchema> {
       for (const value of valueArray) {
         await idbReqToPromise(store.add(value));
         changes.push({ newValue: value });
+      }
+      sendStoreChanges(this, storeName, changes);
+    } catch (err) {
+      tx.abort();
+      throw err;
+    }
+  }
+
+  /**
+   * Inserts new object(s) into the store, or updates existing ones.
+   *
+   * If an object with the same primary key already exists and an updater is provided,
+   * the updater is called with the existing and incoming values to produce the stored value.
+   * Otherwise, the incoming value is stored as-is.
+   *
+   * @throws {DOMException} If the updater tries to change the object's primary key.
+   */
+  async upsert<const StoreName extends keyof Schema & string>(
+    storeName: StoreName,
+    values: StoreValue<Schema[StoreName]> | ReadonlyArray<StoreValue<Schema[StoreName]>>,
+    updater?: (
+      oldValue: StoreValue<Schema[StoreName]>,
+      newValue: StoreValue<Schema[StoreName]>,
+    ) => StoreValue<Schema[StoreName]>,
+  ): Promise<void> {
+    const tx = this.idb.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    const valueArray: readonly StoreValue<Schema[StoreName]>[] = Array.isArray(values)
+      ? values
+      : [values];
+    try {
+      const changes: StoreChange<Schema[StoreName]>[] = [];
+      for (const value of valueArray) {
+        const key = getKeyPathValue(value, store.keyPath!) as IDBValidKey;
+        const oldValue = await idbReqToPromise(
+          store.get(key) as IDBRequest<StoreValue<Schema[StoreName]> | undefined>,
+        );
+        const newValue = oldValue != null && updater != null ? updater(oldValue, value) : value;
+        if (indexedDB.cmp(getKeyPathValue(newValue, store.keyPath!), key) !== 0)
+          throw new DOMException("Updater cannot change the primary key.", "InvalidStateError");
+        await idbReqToPromise(store.put(newValue));
+        changes.push({ oldValue, newValue });
       }
       sendStoreChanges(this, storeName, changes);
     } catch (err) {
