@@ -20,9 +20,9 @@ export async function query<
   const store = tx.objectStore(storeName);
   const { where = {}, orderBy = [] } = options;
 
-  const queryFilters = Object.entries<MaybeKeyRange<IDBValidKey>>(where).map(
-    ([path, range]) => [path, toKeyRange(range)] as const,
-  );
+  const queryFilters = Object.entries<MaybeKeyRange<IDBValidKey>>(where)
+    .filter(([, range]) => range != undefined)
+    .map(([path, range]) => [path, toKeyRange(range)] as const);
   const queryFilterMap = new Map(queryFilters);
   const queryRangeFilters = queryFilters.filter(([, range]) => !isSingleValueRange(range));
   const queryEqFilters = queryFilters
@@ -135,13 +135,13 @@ export interface QueryOptions<StoreSchema extends AnyStoreSchema> extends Cursor
 }
 
 export type QueryFilters<StoreSchema extends AnyStoreSchema> = {
-  readonly [K in QueryFieldsFromStore<StoreSchema>]?:
-    | MaybeKeyRange<Extract<FieldValue<SchemaValue<StoreSchema["value"]>, K>, IDBValidKey>>
-    | undefined;
+  readonly [K in QueryFieldsFromStore<StoreSchema>]?: MaybeKeyRange<
+    Extract<FieldValue<SchemaValue<StoreSchema["value"]>, K>, IDBValidKey>
+  >;
 } & {
-  readonly [K in QueryFieldsFromIndexes<StoreSchema> & string]?:
-    | MaybeKeyRange<Extract<FieldValue<SchemaValue<StoreSchema["value"]>, K>, IDBValidKey>>
-    | undefined;
+  readonly [K in QueryFieldsFromIndexes<StoreSchema> & string]?: MaybeKeyRange<
+    Extract<FieldValue<SchemaValue<StoreSchema["value"]>, K>, IDBValidKey>
+  >;
 };
 
 export type QueryFieldsFromStore<StoreSchema extends AnyStoreSchema> =

@@ -7,7 +7,9 @@ export interface KeyRangeObject<T extends IDBValidKey> {
 
 export type MaybeKeyRange<T extends IDBValidKey> = KeyRangeObject<T> | T;
 
-export function toKeyRange(maybeRange: MaybeKeyRange<IDBValidKey>): IDBKeyRange | undefined {
+export function toKeyRange(
+  maybeRange: MaybeKeyRange<IDBValidKey> | undefined,
+): IDBKeyRange | undefined {
   const range = toKeyRangeObject(maybeRange);
   if (range.lower != null && range.upper != null) {
     return IDBKeyRange.bound(range.lower, range.upper, range.lowerOpen, range.upperOpen);
@@ -21,7 +23,9 @@ export function toKeyRange(maybeRange: MaybeKeyRange<IDBValidKey>): IDBKeyRange 
   return undefined;
 }
 
-function toKeyRangeObject(maybeRange: MaybeKeyRange<IDBValidKey>): KeyRangeObject<IDBValidKey> {
+function toKeyRangeObject(
+  maybeRange: MaybeKeyRange<IDBValidKey> | undefined,
+): KeyRangeObject<IDBValidKey> {
   if (
     typeof maybeRange != "object" ||
     Array.isArray(maybeRange) ||

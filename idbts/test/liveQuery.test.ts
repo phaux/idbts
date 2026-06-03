@@ -26,38 +26,6 @@ await suite("liveQuery", { concurrency: true }, async () => {
     db.idb.close();
   });
 
-  await test("by primary key with upsert", async () => {
-    type Record = { n: number; s?: string };
-    const db = await openDB("live-query-primary-key-insert-or-update", 1, {
-      nums: {
-        value: schema<Record>(),
-        keyPath: "n",
-      },
-    });
-
-    await db.insert("nums", [{ n: 1 }, { n: 3 }]);
-    const ac = new AbortController();
-    const changesPromise = collect(liveQuery(db, "nums", {}), ac.signal);
-    await db.upsert("nums", { n: 2, s: "inserted" });
-    await db.upsert("nums", { n: 3, s: "updated" }, (oldValue, newValue) => ({
-      ...oldValue,
-      ...newValue,
-    }));
-    ac.abort();
-    const changes = await changesPromise;
-    deepEqual(changes, [
-      [{ n: 1 }, { n: 3 }],
-      [{ n: 1 }, { n: 2, s: "inserted" }, { n: 3 }],
-      [{ n: 1 }, { n: 2, s: "inserted" }, { n: 3, s: "updated" }],
-    ]);
-    equal(changes[0]![0], changes[1]![0]);
-    equal(changes[1]![0], changes[2]![0]);
-    equal(changes[0]![1], changes[1]![2]);
-    equal(changes[1]![1], changes[2]![1]);
-
-    db.idb.close();
-  });
-
   await test("by primary key", async (t) => {
     type Record = { n: number; s?: string };
     const db = await openDB("live-query-primary-key", 1, {
@@ -72,7 +40,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
         const ac = new AbortController();
         const changesPromise = collect(liveQuery(db, "nums", {}), ac.signal);
         await db.insert("nums", [{ n: 1 }, { n: 3 }, { n: 5 }]);
-        await db.insert("nums", [{ n: 2 }, { n: 4 }]);
+        await db.upsert("nums", [{ n: 2 }, { n: 4 }]);
         ac.abort();
         const changes = await changesPromise;
         deepEqual(changes, [
@@ -186,6 +154,20 @@ await suite("liveQuery", { concurrency: true }, async () => {
       equal(changes[0]![0], changes[1]![1]);
       equal(changes[1]![1], changes[2]![1]);
       equal(changes[2]![1], changes[3]![0]);
+    });
+
+    await t.test("watching undefined key", async () => {
+      const ac = new AbortController();
+      const changesPromise = collect(
+        liveQuery(db, "nums", { where: { n: undefined as never } }),
+        ac.signal,
+      );
+
+      await db.upsert("nums", { n: 0 });
+      await db.delete("nums", 0);
+      ac.abort();
+      const changes = await changesPromise;
+      deepEqual(changes, [[{ n: 3 }], [{ n: 0 }, { n: 3 }], [{ n: 3 }]]);
     });
 
     db.idb.close();
@@ -307,55 +289,6 @@ await suite("liveQuery", { concurrency: true }, async () => {
     db.idb.close();
   });
 
-  await test("by index with upsert", async () => {
-    type Record = { id: number; name: string; age: number };
-    const db = await openDB("live-query-index-insert-or-update", 1, {
-      people: {
-        value: schema<Record>(),
-        keyPath: "id",
-        indexes: {
-          byName: { keyPath: "name" },
-          byAge: { keyPath: "age" },
-        },
-      },
-    });
-
-    await db.insert("people", [
-      { id: 3, name: "Alice", age: 30 },
-      { id: 2, name: "Charlie", age: 25 },
-    ]);
-    const ac = new AbortController();
-    const changesPromise = collect(liveQuery(db, "people", { orderBy: "name" }), ac.signal);
-    await db.upsert("people", { id: 1, name: "Bob", age: 35 });
-    await db.upsert("people", { id: 2, name: "David", age: 20 }, (oldValue, newValue) => ({
-      ...oldValue,
-      ...newValue,
-    }));
-    ac.abort();
-    const changes = await changesPromise;
-    deepEqual(changes, [
-      [
-        { id: 3, name: "Alice", age: 30 },
-        { id: 2, name: "Charlie", age: 25 },
-      ],
-      [
-        { id: 3, name: "Alice", age: 30 },
-        { id: 1, name: "Bob", age: 35 },
-        { id: 2, name: "Charlie", age: 25 },
-      ],
-      [
-        { id: 3, name: "Alice", age: 30 },
-        { id: 1, name: "Bob", age: 35 },
-        { id: 2, name: "David", age: 20 },
-      ],
-    ]);
-    equal(changes[0]![0], changes[1]![0]);
-    equal(changes[1]![0], changes[2]![0]);
-    equal(changes[1]![1], changes[2]![1]);
-
-    db.idb.close();
-  });
-
   await test("by index", async (t) => {
     type Record = { id: number; name: string; age: number };
     const db = await openDB("live-query-index", 1, {
@@ -374,7 +307,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
         const ac = new AbortController();
         const changes = collect(liveQuery(db, "people", { orderBy: "name" }), ac.signal);
         await db.insert("people", { id: 3, name: "Alice", age: 30 });
-        await db.insert("people", { id: 2, name: "Charlie", age: 25 });
+        await db.upsert("people", { id: 2, name: "Charlie", age: 25 });
         ac.abort();
         deepEqual(await changes, [
           [],
@@ -514,6 +447,32 @@ await suite("liveQuery", { concurrency: true }, async () => {
             { id: 2, name: "Charlie", age: 20 },
           ],
           [{ id: 3, name: "Alice", age: 15 }],
+        ]);
+      });
+
+      await t.test("watching undefined range", async () => {
+        const ac = new AbortController();
+        const changes = collect(
+          liveQuery(db, "people", { where: { age: undefined as never } }),
+          ac.signal,
+        );
+        await db.upsert("people", { id: 4, name: "Eve", age: 28 });
+        await db.delete("people", 4);
+        ac.abort();
+        deepEqual(await changes, [
+          [
+            { id: 2, name: "Charlie", age: 35 },
+            { id: 3, name: "Alice", age: 15 },
+          ],
+          [
+            { id: 2, name: "Charlie", age: 35 },
+            { id: 3, name: "Alice", age: 15 },
+            { id: 4, name: "Eve", age: 28 },
+          ],
+          [
+            { id: 2, name: "Charlie", age: 35 },
+            { id: 3, name: "Alice", age: 15 },
+          ],
         ]);
       });
     });

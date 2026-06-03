@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+import "./test.env.ts";
+
 import { expectTypeOf } from "expect-type";
 import { deepEqual, rejects } from "node:assert/strict";
 import { after, suite, test } from "node:test";
@@ -408,6 +410,21 @@ await suite("query", { concurrency: true }, async () => {
     );
   });
 
+  await test("get by undefined field", async () => {
+    deepEqual(
+      await query(db, "people", {
+        where: { "name.first": undefined as any },
+      }),
+      data,
+    );
+    deepEqual(
+      await query(db, "people", {
+        where: { "name.last": undefined as any },
+      }),
+      data,
+    );
+  });
+
   await test("get by field range reversed", async () => {
     deepEqual(
       await query(db, "people", {
@@ -484,6 +501,15 @@ await suite("query", { concurrency: true }, async () => {
           where: { level: { lower: 3 } } as any,
         }),
       { message: "Missing index on level." },
+    );
+  });
+
+  await test("get by invalid undefined field", async () => {
+    deepEqual(
+      await query(db, "people", {
+        where: { level: undefined } as any,
+      }),
+      data,
     );
   });
 

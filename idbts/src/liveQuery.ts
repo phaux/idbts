@@ -96,10 +96,14 @@ export function liveQuery<
   });
 }
 
-function queryMatches(item: object, filters: Record<string, MaybeKeyRange<IDBValidKey>>): boolean {
+function queryMatches(
+  item: object,
+  filters: Record<string, MaybeKeyRange<IDBValidKey> | undefined>,
+): boolean {
   for (const [key, maybeRange] of Object.entries(filters)) {
     const range = toKeyRange(maybeRange);
-    if (!range || !range.includes(getFieldValue(item, key))) {
+    if (!range) continue;
+    if (!range.includes(getFieldValue(item, key))) {
       return false;
     }
   }
