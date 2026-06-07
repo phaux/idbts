@@ -1,11 +1,11 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { suite, test } from "node:test";
-import { liveQuery } from "../src/liveQuery.ts";
+import { liveQueryDB } from "../src/liveQueryDB.ts";
 import type { MiniObservable } from "../src/MiniObservable.ts";
 import { openDB } from "../src/openDB.ts";
 import { schema } from "../src/StandardSchema.ts";
 
-await suite("liveQuery", { concurrency: true }, async () => {
+await suite("liveQueryDB", { concurrency: true }, async () => {
   await test("buffers changes until initial query resolves", async () => {
     const db = await openDB("live-query-buffering", 1, {
       items: {
@@ -17,7 +17,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
     const ac = new AbortController();
     mutations.push(db.insert("items", { id: 1 }));
     mutations.push(db.insert("items", { id: 2 }));
-    const changes = collect(liveQuery(db, "items", {}), ac.signal);
+    const changes = collect(liveQueryDB(db, "items", {}), ac.signal);
     mutations.push(db.insert("items", { id: 3 }));
     await new Promise((resolve) => setTimeout(resolve, 250));
     ac.abort();
@@ -38,7 +38,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
     await t.test("watching all keys", async (t) => {
       await t.test("insert", async () => {
         const ac = new AbortController();
-        const changesPromise = collect(liveQuery(db, "nums", {}), ac.signal);
+        const changesPromise = collect(liveQueryDB(db, "nums", {}), ac.signal);
         await db.insert("nums", [{ n: 1 }, { n: 3 }, { n: 5 }]);
         await db.upsert("nums", [{ n: 2 }, { n: 4 }]);
         ac.abort();
@@ -55,7 +55,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
 
       await t.test("update", async () => {
         const ac = new AbortController();
-        const changesPromise = collect(liveQuery(db, "nums", {}), ac.signal);
+        const changesPromise = collect(liveQueryDB(db, "nums", {}), ac.signal);
         await db.update("nums", 2, (value) => ({ n: value!.n, s: "updated" }));
         await db.update("nums", 4, (value) => ({ n: value!.n, s: "updated" }));
         ac.abort();
@@ -75,7 +75,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
 
       await t.test("update many", async () => {
         const ac = new AbortController();
-        const changesPromise = collect(liveQuery(db, "nums", {}), ac.signal);
+        const changesPromise = collect(liveQueryDB(db, "nums", {}), ac.signal);
         await db.update("nums", [2, 4], (value) => ({ n: value!.n, s: "updated again" }));
         ac.abort();
         const changes = await changesPromise;
@@ -96,7 +96,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
 
       await t.test("delete", async () => {
         const ac = new AbortController();
-        const changesPromise = collect(liveQuery(db, "nums", {}), ac.signal);
+        const changesPromise = collect(liveQueryDB(db, "nums", {}), ac.signal);
         await db.delete("nums", 2);
         await db.delete("nums", 4);
         ac.abort();
@@ -122,7 +122,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
 
       await t.test("delete many", async () => {
         const ac = new AbortController();
-        const changesPromise = collect(liveQuery(db, "nums", {}), ac.signal);
+        const changesPromise = collect(liveQueryDB(db, "nums", {}), ac.signal);
         await db.delete("nums", [1, 2, 4, 5]);
         ac.abort();
         const changes = await changesPromise;
@@ -134,7 +134,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
     await t.test("watching key range", async () => {
       const ac = new AbortController();
       const changesPromise = collect(
-        liveQuery(db, "nums", { where: { n: { lower: 2, upper: 4 } } }),
+        liveQueryDB(db, "nums", { where: { n: { lower: 2, upper: 4 } } }),
         ac.signal,
       );
       await db.insert("nums", { n: 2 });
@@ -159,7 +159,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
     await t.test("watching undefined key", async () => {
       const ac = new AbortController();
       const changesPromise = collect(
-        liveQuery(db, "nums", { where: { n: undefined as never } }),
+        liveQueryDB(db, "nums", { where: { n: undefined as never } }),
         ac.signal,
       );
 
@@ -185,7 +185,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
     await t.test("watching all keys", async (t) => {
       await t.test("insert at the end", async () => {
         const ac = new AbortController();
-        const changes = collect(liveQuery(db, "points", {}), ac.signal);
+        const changes = collect(liveQueryDB(db, "points", {}), ac.signal);
         await db.insert("points", { x: 1, y: 1 });
         await db.insert("points", { x: 2, y: 2 });
         ac.abort();
@@ -201,7 +201,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
 
       await t.test("insert in between", async () => {
         const ac = new AbortController();
-        const changes = collect(liveQuery(db, "points", {}), ac.signal);
+        const changes = collect(liveQueryDB(db, "points", {}), ac.signal);
         await db.insert("points", { x: 2, y: 1 });
         await db.insert("points", { x: 1, y: 2 });
         ac.abort();
@@ -226,7 +226,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
 
       await t.test("update", async () => {
         const ac = new AbortController();
-        const changes = collect(liveQuery(db, "points", {}), ac.signal);
+        const changes = collect(liveQueryDB(db, "points", {}), ac.signal);
         await db.update("points", [[1, 2]], (value) => ({
           x: value!.x,
           y: value!.y,
@@ -262,7 +262,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
 
       await t.test("delete", async () => {
         const ac = new AbortController();
-        const changes = collect(liveQuery(db, "points", {}), ac.signal);
+        const changes = collect(liveQueryDB(db, "points", {}), ac.signal);
         await db.delete("points", [[1, 2]]);
         await db.delete("points", [[2, 1]]);
         ac.abort();
@@ -305,7 +305,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
     await t.test("watching ordered", async (t) => {
       await t.test("insert at the end", async () => {
         const ac = new AbortController();
-        const changes = collect(liveQuery(db, "people", { orderBy: "name" }), ac.signal);
+        const changes = collect(liveQueryDB(db, "people", { orderBy: "name" }), ac.signal);
         await db.insert("people", { id: 3, name: "Alice", age: 30 });
         await db.upsert("people", { id: 2, name: "Charlie", age: 25 });
         ac.abort();
@@ -321,7 +321,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
 
       await t.test("insert in between", async () => {
         const ac = new AbortController();
-        const changes = collect(liveQuery(db, "people", { orderBy: "name" }), ac.signal);
+        const changes = collect(liveQueryDB(db, "people", { orderBy: "name" }), ac.signal);
         await db.insert("people", { id: 1, name: "Bob", age: 35 });
         ac.abort();
         deepEqual(await changes, [
@@ -339,7 +339,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
 
       await t.test("update watched field", async () => {
         const ac = new AbortController();
-        const changes = collect(liveQuery(db, "people", { orderBy: "name" }), ac.signal);
+        const changes = collect(liveQueryDB(db, "people", { orderBy: "name" }), ac.signal);
         await db.update("people", 1, (value) => ({ ...value!, name: "David" }));
         ac.abort();
         deepEqual(await changes, [
@@ -358,7 +358,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
 
       await t.test("update unwatched field", async () => {
         const ac = new AbortController();
-        const changes = collect(liveQuery(db, "people", { orderBy: "name" }), ac.signal);
+        const changes = collect(liveQueryDB(db, "people", { orderBy: "name" }), ac.signal);
         await db.update("people", 2, (value) => ({ ...value!, age: 20 }));
         ac.abort();
         deepEqual(await changes, [
@@ -377,7 +377,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
 
       await t.test("delete", async () => {
         const ac = new AbortController();
-        const changes = collect(liveQuery(db, "people", { orderBy: "name" }), ac.signal);
+        const changes = collect(liveQueryDB(db, "people", { orderBy: "name" }), ac.signal);
         await db.delete("people", 1);
         ac.abort();
         deepEqual(await changes, [
@@ -398,7 +398,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
       await t.test("insert and delete in range", async () => {
         const ac = new AbortController();
         const changes = collect(
-          liveQuery(db, "people", { where: { age: { lower: 25 } } }),
+          liveQueryDB(db, "people", { where: { age: { lower: 25 } } }),
           ac.signal,
         );
         await db.insert("people", { id: 4, name: "Eve", age: 28 });
@@ -417,7 +417,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
       await t.test("insert and delete outside range", async () => {
         const ac = new AbortController();
         const changes = collect(
-          liveQuery(db, "people", { where: { age: { lower: 25 } } }),
+          liveQueryDB(db, "people", { where: { age: { lower: 25 } } }),
           ac.signal,
         );
         await db.insert("people", { id: 5, name: "Frank", age: 22 });
@@ -429,7 +429,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
       await t.test("update", async () => {
         const ac = new AbortController();
         const changes = collect(
-          liveQuery(db, "people", { orderBy: "age", where: { age: { upper: 25 } } }),
+          liveQueryDB(db, "people", { orderBy: "age", where: { age: { upper: 25 } } }),
           ac.signal,
         );
         await db.update("people", 3, (value) => ({ ...value!, age: 25 }));
@@ -453,7 +453,7 @@ await suite("liveQuery", { concurrency: true }, async () => {
       await t.test("watching undefined range", async () => {
         const ac = new AbortController();
         const changes = collect(
-          liveQuery(db, "people", { where: { age: undefined as never } }),
+          liveQueryDB(db, "people", { where: { age: undefined as never } }),
           ac.signal,
         );
         await db.upsert("people", { id: 4, name: "Eve", age: 28 });

@@ -1,5 +1,5 @@
 import {
-  liveQuery,
+  liveQueryDB,
   type AnyDatabaseSchema,
   type Database,
   type QueryOptions,
@@ -36,7 +36,7 @@ export function useDBQuery<
   options: QueryOptions<Schema[StoreName]>,
 ): StoreValue<Schema[StoreName]>[] {
   return useSubscribable(
-    () => liveQuery(db, storeName, options),
+    () => liveQueryDB(db, storeName, options),
     // TODO: don't use JSON.stringify
     ["idbts", db.idb.name, storeName, JSON.stringify(options)],
   );

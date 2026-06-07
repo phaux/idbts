@@ -66,9 +66,9 @@ await db.delete("people", someId);
 Query the database:
 
 ```ts
-import { query } from "idbts";
+import { queryDB } from "idbts";
 
-const people = await query(db, "people", {
+const people = await queryDB(db, "people", {
   where: {
     "name.first": "Jan",
     "name.last": "Kowalski",
@@ -76,6 +76,26 @@ const people = await query(db, "people", {
   },
   orderBy: "age",
 });
+```
+
+Subscribe to live updates:
+
+```ts
+import { liveQueryDB } from "idbts";
+
+const ac = new AbortController();
+
+const livePeople = liveQueryDB(db, "people", { orderBy: "age" });
+livePeople.subscribe(
+  {
+    next: (people) => console.log("Current results:", people),
+    error: (err) => console.error("Query failed:", err),
+  },
+  { signal: ac.signal },
+);
+
+// Later, when you want to unsubscribe:
+ac.abort();
 ```
 
 ## Type safety
@@ -103,7 +123,7 @@ You never need to write `createObjectStore` / `createIndex` calls by hand.
 
 ## Smart query planner
 
-`query` automatically selects the most efficient index strategy:
+Query automatically selects the most efficient index strategy:
 
 1. **Primary key** — if all filter and order fields are part of the store's compound primary key (if it has one).
 2. **Single index** — if one (possibly composite) index covers all filter and order fields in the right order.
@@ -114,7 +134,7 @@ You never need to write `createObjectStore` / `createIndex` calls by hand.
 
 > [!TIP]
 >
-> If no suitable index exists, `query` throws an error with a message like:
+> If no suitable index exists, `queryDB` throws an error with a message like:
 >
 > ```txt
 > Missing index on name.first+age.

@@ -22,11 +22,11 @@ const results: Value[] = useDBQuery(db, storeName, options);
 Runs a live query against an IndexedDB store and returns the current result array.
 The component **re-renders automatically** whenever the store changes.
 
-| Parameter   | Description                                           |
-| ----------- | ----------------------------------------------------- |
-| `db`        | The `Database` instance returned by `openDB`.         |
-| `storeName` | Name of the object store to query.                    |
-| `options`   | Query options — identical to `liveQuery` from `idbts` |
+| Parameter   | Description                                             |
+| ----------- | ------------------------------------------------------- |
+| `db`        | The `Database` instance returned by `openDB`.           |
+| `storeName` | Name of the object store to query.                      |
+| `options`   | Query options — identical to `liveQueryDB` from `idbts` |
 
 ### Basic usage
 

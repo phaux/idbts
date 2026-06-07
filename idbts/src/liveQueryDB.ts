@@ -2,22 +2,35 @@ import type { AnyDatabaseSchema, Database, StoreValue } from "./Database.ts";
 import { getFieldValue, getKeyPathValue } from "./KeyPath.ts";
 import { toKeyRange, type MaybeKeyRange } from "./KeyRange.ts";
 import { MiniObservable } from "./MiniObservable.ts";
-import { query, type QueryOptions } from "./query.ts";
+import { queryDB, type QueryOptions } from "./queryDB.ts";
 import { getStoreChangesChannel, type StoreChange } from "./storeChangesChannel.ts";
 
 /**
  * Returns an observable that emits the full, up-to-date result array
  * for the given query and re-emits whenever matching records change.
  *
- * First, it retrieves initial results using {@link query},
+ * First, it retrieves initial results using {@link queryDB},
  * then subscribes to the channel from {@link getStoreChangesChannel}
  * and applies incoming changes to the live results array.
  *
  * The items which didn't change from one emit to the next
  * are guaranteed to be the same objects as before,
  * so subscribers can memoize based on object reference equality.
+ *
+ * Example usage:
+ *
+ * ```ts
+ * const ac = new AbortController();
+ * const liveUsers = liveQueryDB(db, "users", { orderBy: "name" });
+ * liveUsers.subscribe({
+ *   next: (users) => console.log("Current users:", users),
+ *   error: (err) => console.error("Query error:", err),
+ * }, { signal: ac.signal });
+ * // Later, to clean up:
+ * ac.abort();
+ * ```
  */
-export function liveQuery<
+export function liveQueryDB<
   const Schema extends AnyDatabaseSchema,
   StoreName extends keyof Schema & string,
 >(
@@ -78,7 +91,7 @@ export function liveQuery<
       : [orderBy];
 
     // Initial query.
-    query(db, storeName, options).then(
+    queryDB(db, storeName, options).then(
       (results) => {
         currentResults = results;
         // Replay any changes that arrived while the query was in flight.

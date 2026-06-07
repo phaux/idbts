@@ -64,6 +64,20 @@ export interface OpenDBOptions {
  * It will automatically create stores and indexes specified in the schema.
  * All you have to do is bump the database version when you add new ones.
  *
+ * Example usage:
+ *
+ * ```ts
+ * const db = await openDB("my-db", 1, {
+ *   users: {
+ *     value: schema<UserEntry>(),
+ *     keyPath: "id",
+ *     indexes: {
+ *       byName: { keyPath: "name" },
+ *     },
+ *   },
+ * });
+ * ```
+ *
  * @see {@link indexedDB.open}
  */
 export function openDB<const T extends AnyDatabaseSchema>(

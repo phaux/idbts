@@ -21,12 +21,24 @@ import type { SchemaValue } from "./StandardSchema.ts";
  *    and advances them in lockstep, yielding only records
  *    whose primary key appears in every cursor position.
  *
+ * Example usage:
+ *
+ * ```ts
+ * const results = await queryDB(db, "users", {
+ *   where: {
+ *     "name.first": "Alice",
+ *     age: { lower: 18 },
+ *   },
+ *   orderBy: "age",
+ * });
+ * ```
+ *
  * @throws {MissingIndexError} If no suitable index (or combination of indexes)
  * can be found to satisfy the requested filters and ordering.
  * The error message names the missing index key paths
  * so you know what to add to your schema.
  */
-export async function query<
+export async function queryDB<
   const Schema extends AnyDatabaseSchema,
   StoreName extends keyof Schema & string,
 >(
@@ -184,7 +196,7 @@ export class MissingIndexError extends Error {
 }
 
 /**
- * Options accepted by {@link query}.
+ * Options accepted by {@link queryDB}.
  */
 export interface QueryOptions<StoreSchema extends AnyStoreSchema> extends CursorIterationOptions {
   /**
