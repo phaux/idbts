@@ -21,7 +21,7 @@ import type { SchemaValue } from "./StandardSchema.ts";
  *    and advances them in lockstep, yielding only records
  *    whose primary key appears in every cursor position.
  *
- * @throws {Error} If no suitable index (or combination of indexes)
+ * @throws {MissingIndexError} If no suitable index (or combination of indexes)
  * can be found to satisfy the requested filters and ordering.
  * The error message names the missing index key paths
  * so you know what to add to your schema.
@@ -173,7 +173,14 @@ export async function query<
     }
   }
 
-  throw new Error(`Missing index on ${missingIndexPaths.join(", ")}.`);
+  throw new MissingIndexError(missingIndexPaths);
+}
+
+export class MissingIndexError extends Error {
+  constructor(missingIndexPaths: string[]) {
+    super(`Missing index on ${missingIndexPaths.join(", ")}.`);
+    this.name = "MissingIndexError";
+  }
 }
 
 /**
