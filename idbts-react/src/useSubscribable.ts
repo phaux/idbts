@@ -1,27 +1,56 @@
 import { use, useEffect, useReducer, useRef, useState } from "react";
 
+/**
+ * Minimal observable interface compatible with any modern observable library.
+ */
 export interface Subscribable<T> {
   subscribe(observer: SubscribableObserver<T>, options: { signal?: AbortSignal }): void;
 }
 
+/**
+ * Observer callbacks passed to {@link Subscribable.subscribe}.
+ */
 export interface SubscribableObserver<T> {
+  /** Called each time the observable emits a new value. */
   next?: (value: T) => void;
+  /** Called when the observable terminates with an error. */
   error?: (err: Error) => void;
+  /** Called when the observable completes normally. */
   complete?: () => void;
 }
 
+/**
+ * Module-level caches shared across all hook invocations.
+ * Maps a dependency list (cache key) to its multicast wrapper.
+ */
 const observableCache = new Map<React.DependencyList, Subscribable<unknown>>();
+/**
+ * Holds the pending/resolved promise used for React Suspense.
+ */
 const promiseCache = new WeakMap<Subscribable<unknown>, Promise<unknown>>();
+/**
+ * Stores the most recently emitted value so new subscribers get it immediately.
+ */
 const valueCache = new WeakMap<Subscribable<unknown>, unknown>();
 
-const CLEANUP_DELAY = 3000; // Time to wait before cleaning up unused observables
+/** How long (ms) to keep an unsubscribed observable in the cache before tearing it down. */
+const CLEANUP_DELAY = 3000;
 
 /**
- * Subscribes to an observable and returns the latest value.
- * Suspends until the first value is received.
+ * Low-level hook that subscribes to a {@link Subscribable}
+ * and returns the latest emitted value.
  *
- * Calls with the same cache key will reuse the same observable.
- * Cache key must be globally unique.
+ * **Suspense integration** — the hook throws a `Promise` (i.e. suspends)
+ * until the observable emits its first value,
+ * then resolves synchronously on every subsequent render.
+ *
+ * **Deduplication / multicasting** — observables are keyed by `cacheKey`.
+ * If another component calls this hook with an identical key
+ * the same underlying subscription is reused.
+ * The source observable is kept alive for few seconds
+ * after the last subscriber unsubscribes
+ * so that brief unmount/remount cycles (e.g. StrictMode double-invocation)
+ * do not open redundant connections.
  */
 export function useSubscribable<T>(
   getObservable: () => Subscribable<T>,

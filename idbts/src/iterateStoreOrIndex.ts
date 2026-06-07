@@ -1,12 +1,81 @@
 import { idbReqToPromise } from "./idbReqToPromise.ts";
-import { getMaxKey } from "./KeyRange.ts";
 import { skipCursorOverRanges } from "./skipCursorOverRanges.ts";
 
+/**
+ * Options controlling how a cursor iterates over an object store or index.
+ */
 export interface CursorIterationOptions {
+  /**
+   * Cursor traversal direction.
+   *
+   * @see {@link IDBCursorDirection}
+   */
   readonly direction?: "next" | "prev" | undefined;
+  /**
+   * Maximum number of records to yield. Defaults to `Infinity` (no limit).
+   */
   readonly limit?: number | undefined;
 }
 
+/**
+ * Yields store or index entries that satisfy the given key ranges.
+ *
+ * A key range for the record's key and/or primary key can be specified.
+ * If iterating a composite key, an array of ranges should be provided.
+ * In this case, each range corresponds to a composite key component.
+ * Undefined ranges are treated as a wildcard (matches all values).
+ *
+ * The cursor is opened at the start of the store/index (or end if reversed)
+ * and advanced by {@link skipCursorOverRanges} to efficiently skip records
+ * that do not match the specified ranges.
+ *
+ * Note that when iterating a store directly, the key and primary key are the same value.
+ * In this case, the second range argument should be omitted.
+ *
+ * ## Examples
+ *
+ * Iterate primary key range:
+ *
+ * ```js
+ * const results = await Array.fromAsync(
+ *   iterateStoreOrIndex(
+ *     store,
+ *     IDBKeyRange.bound(1, 10),
+ *     undefined,
+ *     { ...options},
+ *   )
+ * );
+ * ```
+ *
+ * Get intersection of index value and primary key ranges:
+ *
+ * ```js
+ * const results = await Array.fromAsync(
+ *   iterateStoreOrIndex(
+ *     store.index("byName"),
+ *     IDBKeyRange.bound("M", "M\uFFFF"),
+ *     IDBKeyRange.bound(20, 30),
+ *     { ...options},
+ *   )
+ * );
+ * ```
+ *
+ * Get intersection of name and age ranges:
+ *
+ * ```js
+ * const results = await Array.fromAsync(
+ *   iterateStoreOrIndex(
+ *     store.index("byNameAndAge"),
+ *     [
+ *       IDBKeyRange.bound("M", "M\uFFFF"),
+ *       IDBKeyRange.bound(20, 30),
+ *     ],
+ *     undefined,
+ *     { ...options},
+ *   )
+ * );
+ * ```
+ */
 export async function* iterateStoreOrIndex<T>(
   iteratable: IDBObjectStore | IDBIndex,
   keyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
@@ -23,124 +92,5 @@ export async function* iterateStoreOrIndex<T>(
     i++;
     cursor.continue();
     cursor = await idbReqToPromise(cursor.request as IDBRequest<IDBCursorWithValue | null>);
-  }
-}
-
-/**
- * Performs a zig-zag merge join algorithm to query the given database.
- * Returns an iterator over store items filtered by given index-value pairs.
- *
- * Example:
- *
- * ```js
- * const results = await Array.fromAsync(zigZagQuery([
- *   [store.index("byUser"), "kazik"],
- *   [store.index("byTag"), "photography"],
- * ]));
- * ```
- *
- * This is equivalent to a SQL query like:
- *
- * ```sql
- * SELECT * FROM `storeName`
- * WHERE `user` = "kazik"
- * AND `tag` = "photography"
- * ```
- *
- * Filtered values can be prefixes of a compound index, not just an exact match.
- * This allows to filter by one field and sort by another.
- *
- * Example:
- *
- * ```js
- * const results = await Array.fromAsync(zigZagQuery([
- *   [store.index("byUserAndDate"), ["kazik"]],
- *   [store.index("byTagAndDate"), ["photography"]],
- * ]));
- * ```
- */
-export async function* iterateIndexesConcurrently<T>(
-  indexValues: ReadonlyArray<readonly [index: IDBObjectStore | IDBIndex, value: IDBValidKey]>,
-  postfixRanges: ReadonlyArray<IDBKeyRange | undefined> | undefined,
-  primaryKeyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
-  options: CursorIterationOptions,
-): AsyncGenerator<T, undefined, undefined> {
-  const { direction, limit = Infinity } = options;
-
-  // Create a cursor for every filter.
-  let cursors = await Promise.all(
-    indexValues.map(([index, value]) => {
-      // For compound indexes, value can be a prefix of the indexed key.
-      // In that case we want to query for all keys starting with the prefix.
-      const range = Array.isArray(value)
-        ? IDBKeyRange.bound(value, [...value, getMaxKey()])
-        : IDBKeyRange.only(value);
-      return idbReqToPromise(index.openCursor(range, direction));
-    }),
-  );
-
-  let i = 0;
-  while (i < limit) {
-    // Move all cursors according to postfix and primary key ranges.
-    cursors = await Promise.all(
-      cursors.map((cursor) => {
-        // First key part is already constrained by cursor's range
-        const ranges = [undefined, ...(postfixRanges ?? [])];
-        return skipCursorOverRanges(cursor, ranges, primaryKeyRanges, direction === "prev");
-      }),
-    );
-
-    // If any cursor is null, we've reached the end.
-    if (!cursors.every((cursor) => cursor != null)) break;
-    // All cursors are pointing to some item.
-    const postfixes = cursors.map((cursor, i) => {
-      const prefix = indexValues[i]![1];
-      // For primitive index the postfix is just the primary key.
-      if (!Array.isArray(prefix) || !Array.isArray(cursor.key)) return [cursor.primaryKey];
-      // For compound index, the postfix is the part after the prefix.
-      const keyPostfix = cursor.key.slice(prefix.length);
-      return [...keyPostfix, cursor.primaryKey];
-    });
-
-    // Find out the largest postfix of all current items.
-    const furthestPostfix = postfixes.reduce((a, b) => {
-      let order = indexedDB.cmp(a, b);
-      if (direction === "prev") order = -order;
-      return order > 0 ? a : b;
-    });
-
-    // Check if all cursors are pointing to the same item.
-    if (postfixes.every((postfix) => indexedDB.cmp(postfix, furthestPostfix) === 0)) {
-      // If so, we found a match.
-      yield cursors[0]!.value;
-      i++;
-      // Move all cursors to their next item and repeat.
-      cursors = await Promise.all(
-        cursors.map((cursor) => {
-          cursor.continue();
-          return idbReqToPromise(cursor.request as IDBRequest<IDBCursorWithValue | null>);
-        }),
-      );
-      continue;
-    }
-    // Cursors are pointing to different items.
-    // Try to move the cursors to the current largest postfix.
-    cursors = await Promise.all(
-      cursors.map(async (cursor, i) => {
-        // If the cursor is already pointing to the largest postfix, leave it as is.
-        if (indexedDB.cmp(postfixes[i]!, furthestPostfix) === 0) return cursor;
-        // Otherwise, move it to at least the largest postfix.
-        const prefix = indexValues[i]![1];
-        if (Array.isArray(prefix)) {
-          const keyPostfix = furthestPostfix.slice(0, furthestPostfix.length - 1);
-          const primaryKey = furthestPostfix[furthestPostfix.length - 1]!;
-          const key = [...prefix, ...keyPostfix];
-          cursor.continuePrimaryKey(key, primaryKey);
-        } else {
-          cursor.continuePrimaryKey(prefix, furthestPostfix[0]!);
-        }
-        return idbReqToPromise(cursor.request as IDBRequest<IDBCursorWithValue | null>);
-      }),
-    );
   }
 }

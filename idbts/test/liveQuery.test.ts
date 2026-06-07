@@ -484,8 +484,19 @@ await suite("liveQuery", { concurrency: true }, async () => {
 function collect<T>(observable: MiniObservable<T>, signal: AbortSignal): Promise<T[]> {
   return new Promise((resolve, reject) => {
     const results: T[] = [];
-    observable
-      .subscribe({ next: (value) => results.push(value) }, { signal })
-      .then(() => resolve(results), reject);
+    const ac = new AbortController();
+    observable.subscribe(
+      {
+        next: (value) => results.push(value),
+        error: (err) => reject(err),
+      },
+      { signal: ac.signal },
+    );
+    if (signal.aborted) complete();
+    else signal.addEventListener("abort", () => complete());
+    function complete() {
+      ac.abort();
+      resolve(results);
+    }
   });
 }

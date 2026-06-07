@@ -1,5 +1,5 @@
 /**
- * Creates a noop [StandardSchema](https://standardschema.dev/), which doesn't validate anything.
+ * Creates a no-op [StandardSchema](https://standardschema.dev/), which doesn't validate anything.
  */
 export function schema<T>(): StandardSchema<T> {
   return { "~standard": {} };

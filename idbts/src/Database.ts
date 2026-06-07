@@ -1,5 +1,5 @@
 import { idbReqToPromise } from "./idbReqToPromise.ts";
-import { getKeyPathValue, type KeyPathValue } from "./KeyPath.ts";
+import { getKeyPathValue, type AnyKeyPath, type KeyPathValue } from "./KeyPath.ts";
 import type { SchemaValue, StandardSchema } from "./StandardSchema.ts";
 import { sendStoreChanges, type StoreChange } from "./storeChangesChannel.ts";
 
@@ -17,19 +17,19 @@ export interface AnyStoreSchema {
   /**
    * The schema of the value.
    *
-   * This can be any StandardSchema-compatible schema.
-   * Use {@link schema} to create a noop schema.
+   * This can be any StandardSchema-compatible schema (zod, valibot, etc.).
+   * If you don't use one, you can create a no-op schema with `schema<T>()`,
+   * which doesn't do any validation but still provides type safety.
    */
   readonly value: StandardSchema<object>;
 
   /**
-   * The primary key path of the store.
+   * The primary key field of the store.
+   * May be a dot-separated path (e.g. `foo.bar`) or an array of such paths.
    *
    * Used to infer the type of the primary key based on the store value.
-   *
-   * @see {@link KeyPathValue}
    */
-  readonly keyPath: string | readonly string[];
+  readonly keyPath: AnyKeyPath;
 
   /**
    * The schemas of the indexes.
@@ -44,19 +44,20 @@ export interface AnyStoreSchema {
  */
 export interface AnyIndexSchema {
   /**
-   * The key path of the index.
+   * The key field of the index.
+   * May be a dot-separated path (e.g. `foo.bar`) or an array of such paths.
    *
    * Used to infer the type of the index key based on the store value.
    *
    * @see {@link KeyPathValue}
    */
-  readonly keyPath: string | readonly string[];
+  readonly keyPath: AnyKeyPath;
 
   /**
    * Whether the index is multi-entry.
    *
-   * If true and the indexed value is an array, each value in the array is indexed separately.
-   * In this case, the inferred index key type is flattened if it is an array.
+   * If true and the indexed value is an array,
+   * each value in the array is indexed separately.
    */
   readonly multiEntry?: boolean | undefined;
 
@@ -82,7 +83,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   }
 
   /**
-   * The List of the names of the object stores in the database.
+   * The List of the names of the stores in the database.
    *
    * @see {@link IDBDatabase.objectStoreNames}
    */
@@ -91,7 +92,9 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   }
 
   /**
-   * Retrieves an object from the store.
+   * Retrieves an object from the store by its primary key.
+   *
+   * @see {@link IDBObjectStore.get}
    */
   async get<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
@@ -106,6 +109,8 @@ export class Database<const Schema extends AnyDatabaseSchema> {
 
   /**
    * Retrieves all objects from the store.
+   *
+   * @see {@link IDBObjectStore.getAll}
    */
   async getAll<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
@@ -118,7 +123,9 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   /**
    * Inserts a new object or objects into the store.
    *
-   * Throws an error if an object with the same primary key already exists.
+   * Uses {@link IDBObjectStore.add} to insert the objects.
+   * Rethrows error if an object with the same primary key already exists
+   * or if any of the unique constraints are violated.
    */
   async insert<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
@@ -148,6 +155,9 @@ export class Database<const Schema extends AnyDatabaseSchema> {
    * If an object with the same primary key already exists and an updater is provided,
    * the updater is called with the existing and incoming values to produce the stored value.
    * Otherwise, the incoming value is stored as-is.
+   *
+   * Uses {@link IDBObjectStore.put} to insert or update the objects.
+   * Rethrows error if any of the unique constraints are violated.
    *
    * @throws {DOMException} If the updater tries to change the object's primary key.
    */
@@ -189,6 +199,9 @@ export class Database<const Schema extends AnyDatabaseSchema> {
    *
    * Updater receives undefined if the object doesn't exist.
    * If the updater returns undefined, the object will be deleted.
+   *
+   * Uses either {@link IDBObjectStore.put} or {@link IDBObjectStore.delete} internally.
+   * Rethrows error if any of the unique constraints are violated.
    *
    * @throws {DOMException} If the updater tries to change the object's primary key.
    */

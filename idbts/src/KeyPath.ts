@@ -39,11 +39,23 @@ export type FieldValue<Value, Path extends string> = Path extends ""
         : never
     : never;
 
+/**
+ * Extracts the runtime value at a given dot-separated key path from an object.
+ *
+ * If `keyPath` is a string, the corresponding field value is returned directly.
+ * If `keyPath` is an array of strings (composite key path), an array of field
+ * values is returned in the same order.
+ */
 export function getKeyPathValue(obj: unknown, keyPath: AnyKeyPath): unknown {
   if (typeof keyPath === "string") return getFieldValue(obj, keyPath);
   return keyPath.map((kp) => getFieldValue(obj, kp));
 }
 
+/**
+ * Traverses an object by a dot-separated field path and returns the value at that path.
+ * Returns `undefined` if any segment of the path is missing
+ * or if an intermediate value is not an object.
+ */
 export function getFieldValue(obj: unknown, field: string): unknown {
   const parts = field.split(".");
   let current = obj;
@@ -56,4 +68,11 @@ export function getFieldValue(obj: unknown, field: string): unknown {
   return current;
 }
 
+/**
+ * A single dot-separated key path string,
+ * or an array of such strings representing a composite (multi-field) key.
+ *
+ * Mirrors the `keyPath` option accepted by {@link IDBObjectStore.createIndex}
+ * and related IndexedDB APIs.
+ */
 export type AnyKeyPath = string | readonly string[];

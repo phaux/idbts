@@ -3,38 +3,55 @@ import { type AnyDatabaseSchema, Database } from "./Database.ts";
 /**
  * Options for {@link openDB}.
  *
- * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/IDBFactory/open}
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/IDBOpenDBRequest
  */
-
 export interface OpenDBOptions {
   /**
-   * Fired when database was opened with a version number higher than its current version
+   * Fired on the request object when database was opened with a higher version number
    * and an exclusive upgrade transaction was successfully created.
+   *
+   * The store and index creation and deletion operations
+   * are performed automatically just before this callback is invoked.
+   * You can use this callback to specify additional migration logic.
+   *
+   * The open DB promise settles after this callback is invoked
+   * and all pending transaction operations are finished.
    *
    * @see {@link IDBOpenDBRequest.onupgradeneeded}
    */
   onUpgradeNeeded?: IDBOpenDBRequest["onupgradeneeded"];
 
   /**
-   * Fired when an attempt was made to open a database with a version number higher than its current version,
+   * Fired on the request when an attempt was made to open this database with a higher version number,
    * but an already open connection to the same database is blocking the upgrade transaction.
+   *
+   * You can use this callback to ask the user to close app's other browser tabs.
+   *
+   * The open DB promise will not resolve as long as the database is blocked.
    *
    * @see {@link IDBOpenDBRequest.onblocked}
    */
   onBlocked?: IDBOpenDBRequest["onblocked"];
 
   /**
-   * Fired when this database is already opened and a structure change was requested elsewhere.
+   * Fired on the database when it's already opened and a version upgrade was requested elsewhere.
    * For example, if the database was opened with a higher version in another tab.
    *
-   * You can use this callback to inform the user that the app needs to be reloaded.
+   * You can use this callback to inform the user that the current tab needs to be closed
+   * or reload it automatically if it won't disrupt the user.
+   *
+   * If you know you will only ever make backward-compatible changes,
+   * you can use this event to close and reopen the database in the background
+   * without loading the new app code yet.
+   *
+   * The open DB promise is already resolved when this event is fired.
    *
    * @see {@link IDBDatabase.onversionchange}
    */
   onVersionChange?: IDBDatabase["onversionchange"];
 
   /**
-   * Fired when the database is unexpectedly closed.
+   * Fired on the database when it's unexpectedly closed.
    * For example, if the user clears the database in the browser's history preferences.
    *
    * @see {@link IDBDatabase.onclose}
@@ -42,14 +59,13 @@ export interface OpenDBOptions {
   onClose?: IDBDatabase["onclose"];
 }
 /**
- * Opens a Typed IndexedDB database.
+ * Opens an IndexedDB database.
  *
  * It will automatically create stores and indexes specified in the schema.
  * All you have to do is bump the database version when you add new ones.
  *
  * @see {@link indexedDB.open}
  */
-
 export function openDB<const T extends AnyDatabaseSchema>(
   name: string,
   version: number,
