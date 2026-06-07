@@ -8,7 +8,7 @@ import type { AnyDatabaseSchema } from "../src/Database.ts";
 import type { MaybeKeyRange } from "../src/KeyRange.ts";
 import { openDB } from "../src/openDB.ts";
 import { queryDB } from "../src/queryDB.ts";
-import { schema } from "../src/StandardSchema.ts";
+import { schema } from "../src/schema.ts";
 
 type QueryOptions<Where, OrderBy> = {
   where?: Where | undefined;

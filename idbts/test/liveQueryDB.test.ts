@@ -3,7 +3,7 @@ import { suite, test } from "node:test";
 import { liveQueryDB } from "../src/liveQueryDB.ts";
 import type { MiniObservable } from "../src/MiniObservable.ts";
 import { openDB } from "../src/openDB.ts";
-import { schema } from "../src/StandardSchema.ts";
+import { schema } from "../src/schema.ts";
 
 await suite("liveQueryDB", { concurrency: true }, async () => {
   await test("buffers changes until initial query resolves", async () => {

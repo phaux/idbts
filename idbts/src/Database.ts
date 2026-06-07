@@ -1,6 +1,6 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { idbReqToPromise } from "./idbReqToPromise.ts";
 import { getKeyPathValue, type AnyKeyPath, type KeyPathValue } from "./KeyPath.ts";
-import type { SchemaValue, StandardSchema } from "./StandardSchema.ts";
 import { sendStoreChanges, type StoreChange } from "./storeChangesChannel.ts";
 
 /**
@@ -15,13 +15,13 @@ export type AnyDatabaseSchema = Readonly<Record<string, AnyStoreSchema>>;
  */
 export interface AnyStoreSchema {
   /**
-   * The schema of the value.
+   * The schema of the store items.
    *
    * This can be any StandardSchema-compatible schema (zod, valibot, etc.).
    * If you don't use one, you can create a no-op schema with `schema<T>()`,
    * which doesn't do any validation but still provides type safety.
    */
-  readonly value: StandardSchema<object>;
+  readonly value: StandardSchemaV1<object, object>;
 
   /**
    * The primary key field of the store.
@@ -78,8 +78,14 @@ export class Database<const Schema extends AnyDatabaseSchema> {
    */
   readonly idb: IDBDatabase;
 
-  constructor(idb: IDBDatabase) {
+  /**
+   * The schema of the database which was used to create it.
+   */
+  readonly schema: Schema;
+
+  constructor(idb: IDBDatabase, schema: Schema) {
     this.idb = idb;
+    this.schema = schema;
   }
 
   /**
@@ -129,18 +135,19 @@ export class Database<const Schema extends AnyDatabaseSchema> {
    */
   async insert<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    values: StoreValue<Schema[StoreName]> | ReadonlyArray<StoreValue<Schema[StoreName]>>,
+    values: StoreInputValue<Schema[StoreName]> | ReadonlyArray<StoreInputValue<Schema[StoreName]>>,
   ): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
-    const valueArray: readonly StoreValue<Schema[StoreName]>[] = Array.isArray(values)
+    const valueArray: readonly StoreInputValue<Schema[StoreName]>[] = Array.isArray(values)
       ? values
       : [values as any];
     try {
       const changes: StoreChange<Schema[StoreName]>[] = [];
       for (const value of valueArray) {
-        await idbReqToPromise(store.add(value));
-        changes.push({ newValue: value });
+        const storedValue = await this.#validateValue(storeName, value);
+        await idbReqToPromise(store.add(storedValue));
+        changes.push({ newValue: storedValue });
       }
       sendStoreChanges(this, storeName, changes);
     } catch (err) {
@@ -163,25 +170,29 @@ export class Database<const Schema extends AnyDatabaseSchema> {
    */
   async upsert<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    values: StoreValue<Schema[StoreName]> | ReadonlyArray<StoreValue<Schema[StoreName]>>,
+    values: StoreInputValue<Schema[StoreName]> | ReadonlyArray<StoreInputValue<Schema[StoreName]>>,
     updater?: (
       oldValue: StoreValue<Schema[StoreName]>,
       newValue: StoreValue<Schema[StoreName]>,
-    ) => StoreValue<Schema[StoreName]>,
+    ) => StoreInputValue<Schema[StoreName]>,
   ): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
-    const valueArray: readonly StoreValue<Schema[StoreName]>[] = Array.isArray(values)
+    const valueArray: readonly StoreInputValue<Schema[StoreName]>[] = Array.isArray(values)
       ? values
       : [values];
     try {
       const changes: StoreChange<Schema[StoreName]>[] = [];
       for (const value of valueArray) {
-        const key = getKeyPathValue(value, store.keyPath!) as IDBValidKey;
+        const storedValue = await this.#validateValue(storeName, value);
+        const key = getKeyPathValue(storedValue, store.keyPath!) as IDBValidKey;
         const oldValue = await idbReqToPromise(
           store.get(key) as IDBRequest<StoreValue<Schema[StoreName]> | undefined>,
         );
-        const newValue = oldValue != null && updater != null ? updater(oldValue, value) : value;
+        const newValue =
+          oldValue != null && updater != null
+            ? await this.#validateValue(storeName, updater(oldValue, storedValue))
+            : storedValue;
         if (indexedDB.cmp(getKeyPathValue(newValue, store.keyPath!), key) !== 0)
           throw new DOMException("Updater cannot change the primary key.", "InvalidStateError");
         await idbReqToPromise(store.put(newValue));
@@ -212,7 +223,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
       | ReadonlyArray<StorePrimaryKey<Schema[StoreName]>>,
     updater: (
       value: StoreValue<Schema[StoreName]> | undefined,
-    ) => StoreValue<Schema[StoreName]> | undefined,
+    ) => StoreInputValue<Schema[StoreName]> | undefined,
   ): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
@@ -224,14 +235,16 @@ export class Database<const Schema extends AnyDatabaseSchema> {
           store.get(key) as IDBRequest<StoreValue<Schema[StoreName]> | undefined>,
         );
         const newValue = updater(oldValue);
-        if (newValue != null) {
-          if (indexedDB.cmp(getKeyPathValue(newValue, store.keyPath!), key) !== 0)
+        const storedValue =
+          newValue != null ? await this.#validateValue(storeName, newValue) : undefined;
+        if (storedValue != null) {
+          if (indexedDB.cmp(getKeyPathValue(storedValue, store.keyPath!), key) !== 0)
             throw new DOMException("Updater cannot change the primary key.", "InvalidStateError");
-          await idbReqToPromise(store.put(newValue));
+          await idbReqToPromise(store.put(storedValue));
         } else if (oldValue != null) {
           await idbReqToPromise(store.delete(key));
         }
-        changes.push({ oldValue, newValue });
+        changes.push({ oldValue, newValue: storedValue });
       }
       sendStoreChanges(this, storeName, changes);
     } catch (err) {
@@ -285,17 +298,63 @@ export class Database<const Schema extends AnyDatabaseSchema> {
     const changes: StoreChange<Schema[StoreName]>[] = oldValues.map((oldValue) => ({ oldValue }));
     sendStoreChanges(this, storeName, changes);
   }
+
+  /**
+   * Validates a value against the store's schema and returns the validated output.
+   * Throws {@link SchemaValidationError} if validation fails.
+   */
+  async #validateValue<const StoreName extends keyof Schema & string>(
+    storeName: StoreName,
+    value: unknown,
+  ): Promise<StoreValue<Schema[StoreName]>> {
+    const validate = this.schema[storeName]!.value["~standard"].validate;
+    const result = await validate(value);
+    if (result.issues != null) throw new SchemaValidationError(result.issues);
+    return result.value as StoreValue<Schema[StoreName]>;
+  }
+}
+
+/**
+ * Error thrown when a value fails schema validation.
+ */
+export class SchemaValidationError extends Error {
+  readonly issues: ReadonlyArray<StandardSchemaV1.Issue>;
+
+  constructor(issues: ReadonlyArray<StandardSchemaV1.Issue>) {
+    super(
+      `Schema validation failed:\n` +
+        issues
+          .map(
+            (i) =>
+              i.path?.map((p) => (typeof p == "object" ? p.key : p)).join(".") + ": " + i.message,
+          )
+          .join("\n"),
+    );
+    this.name = "SchemaValidationError";
+    this.issues = issues;
+  }
 }
 
 /**
  * Infer the primary key type of an object store based on its schema.
  */
 export type StorePrimaryKey<Schema extends AnyStoreSchema> = KeyPathValue<
-  SchemaValue<Schema["value"]>,
+  StandardSchemaV1.InferOutput<Schema["value"]>,
   Schema["keyPath"]
 >;
 
 /**
- * Infer the value type of an object store based on its schema.
+ * Infer the input value type of an object store based on its schema.
+ * This is the type accepted by write operations such as {@link Database.insert} and {@link Database.upsert}.
  */
-export type StoreValue<Schema extends AnyStoreSchema> = Readonly<SchemaValue<Schema["value"]>>;
+export type StoreInputValue<Schema extends AnyStoreSchema> = Readonly<
+  StandardSchemaV1.InferInput<Schema["value"]>
+>;
+
+/**
+ * Infer the output value type of an object store based on its schema.
+ * This is the type returned by read operations such as {@link Database.get} and {@link Database.getAll}.
+ */
+export type StoreValue<Schema extends AnyStoreSchema> = Readonly<
+  StandardSchemaV1.InferOutput<Schema["value"]>
+>;

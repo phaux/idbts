@@ -1,9 +1,14 @@
-import type { AnyDatabaseSchema, AnyIndexSchema, AnyStoreSchema, Database } from "./Database.ts";
+import type {
+  AnyDatabaseSchema,
+  AnyIndexSchema,
+  AnyStoreSchema,
+  Database,
+  StoreValue,
+} from "./Database.ts";
 import { iterateIndexesConcurrently } from "./iterateIndexesConcurrently.ts";
 import { iterateStoreOrIndex, type CursorIterationOptions } from "./iterateStoreOrIndex.ts";
 import type { FieldValue } from "./KeyPath.ts";
 import { isSingleValueRange, toKeyRange, type MaybeKeyRange } from "./KeyRange.ts";
-import type { SchemaValue } from "./StandardSchema.ts";
 
 /**
  * Executes a one-shot async query against an IndexedDB object store
@@ -45,7 +50,7 @@ export async function queryDB<
   db: Database<Schema>,
   storeName: StoreName,
   options: QueryOptions<Schema[StoreName]>,
-): Promise<SchemaValue<Schema[StoreName]["value"]>[]> {
+): Promise<StoreValue<Schema[StoreName]>[]> {
   const tx = db.idb.transaction(storeName, "readonly");
   const store = tx.objectStore(storeName);
   const { where = {}, orderBy = [] } = options;
@@ -249,11 +254,11 @@ export interface QueryOptions<StoreSchema extends AnyStoreSchema> extends Cursor
  */
 export type QueryFilters<StoreSchema extends AnyStoreSchema> = {
   readonly [K in QueryFieldsFromStore<StoreSchema>]?: MaybeKeyRange<
-    Extract<FieldValue<SchemaValue<StoreSchema["value"]>, K>, IDBValidKey>
+    Extract<FieldValue<StoreValue<StoreSchema>, K>, IDBValidKey>
   >;
 } & {
   readonly [K in QueryFieldsFromIndexes<StoreSchema> & string]?: MaybeKeyRange<
-    Extract<FieldValue<SchemaValue<StoreSchema["value"]>, K>, IDBValidKey>
+    Extract<FieldValue<StoreValue<StoreSchema>, K>, IDBValidKey>
   >;
 };
 

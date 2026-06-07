@@ -92,7 +92,7 @@ export function openDB<const T extends AnyDatabaseSchema>(
       const db = request.result;
       db.onversionchange = options?.onVersionChange ?? null;
       db.onclose = options?.onClose ?? null;
-      resolve(new Database(db));
+      resolve(new Database(db, schema));
     };
     request.onerror = () => {
       reject(request.error!);

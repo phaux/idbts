@@ -1,7 +1,7 @@
 import { deepEqual, rejects } from "node:assert/strict";
 import { suite, test } from "node:test";
 import { openDB } from "../src/openDB.ts";
-import { schema } from "../src/StandardSchema.ts";
+import { schema } from "../src/schema.ts";
 
 await suite("openDB", async () => {
   type StrRecord = { id: number; str: string };

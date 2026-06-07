@@ -1,9 +1,12 @@
 /* eslint-disable @typescript-eslint/unbound-method */
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { expectTypeOf } from "expect-type";
-import { deepEqual, rejects } from "node:assert/strict";
+import { deepEqual, equal, ok, rejects } from "node:assert/strict";
 import { suite, test } from "node:test";
+import { z } from "zod";
+import { SchemaValidationError } from "../src/Database.ts";
 import { openDB } from "../src/openDB.ts";
-import { schema } from "../src/StandardSchema.ts";
+import { schema } from "../src/schema.ts";
 
 await suite("Database", { concurrency: true }, async () => {
   await test("inline key and index", async (t) => {
@@ -399,6 +402,216 @@ await suite("Database", { concurrency: true }, async () => {
           x: value!.x + 1,
           y: value!.y + 1,
         })),
+      );
+    });
+
+    db.idb.close();
+  });
+
+  await test("schema validation with zod", async (t) => {
+    const userSchema = z.object({
+      id: z.number().int().positive(),
+      name: z.string().min(1),
+      age: z.number().int().min(0),
+    });
+
+    type User = z.infer<typeof userSchema>;
+
+    const db = await openDB("zod-validation", 1, {
+      users: {
+        value: userSchema,
+        keyPath: "id",
+      },
+    });
+
+    await t.test("insert valid value succeeds", async () => {
+      await db.insert("users", { id: 1, name: "Alice", age: 30 });
+      deepEqual(await db.get("users", 1), { id: 1, name: "Alice", age: 30 });
+    });
+
+    await t.test("insert invalid value throws SchemaValidationError", async () => {
+      await rejects(
+        () => db.insert("users", { id: 2, name: "", age: 30 }),
+        (err) => {
+          ok(err instanceof SchemaValidationError, "error should be SchemaValidationError");
+          ok(err.issues.length > 0, "error should have issues");
+          return true;
+        },
+      );
+    });
+
+    await t.test("insert rolls back on validation failure", async () => {
+      await rejects(() =>
+        db.insert("users", [
+          { id: 10, name: "Valid", age: 25 },
+          { id: 11, name: "", age: 25 },
+        ]),
+      );
+      deepEqual(await db.get("users", 10), undefined);
+      deepEqual(await db.get("users", 11), undefined);
+    });
+
+    await t.test("upsert valid value succeeds", async () => {
+      await db.upsert("users", { id: 1, name: "Alice Updated", age: 31 });
+      deepEqual(await db.get("users", 1), { id: 1, name: "Alice Updated", age: 31 });
+    });
+
+    await t.test("upsert invalid value throws SchemaValidationError", async () => {
+      await rejects(() => db.upsert("users", { id: 1, name: "", age: 31 }), SchemaValidationError);
+      deepEqual(await db.get("users", 1), { id: 1, name: "Alice Updated", age: 31 });
+    });
+
+    await t.test("upsert with updater validates result", async () => {
+      await rejects(
+        () =>
+          db.upsert("users", { id: 1, name: "Alice", age: 31 }, (old) => ({
+            ...old,
+            name: "",
+            age: -1,
+          })),
+        SchemaValidationError,
+      );
+      deepEqual(await db.get("users", 1), { id: 1, name: "Alice Updated", age: 31 });
+    });
+
+    await t.test("update invalid value throws SchemaValidationError", async () => {
+      await rejects(
+        () => db.update("users", 1, (old) => ({ ...old!, name: "", age: -5 })),
+        (err) => {
+          ok(err instanceof SchemaValidationError, "error should be SchemaValidationError");
+          ok(err.issues.length > 0, "error should have issues");
+          return true;
+        },
+      );
+      deepEqual(await db.get("users", 1), { id: 1, name: "Alice Updated", age: 31 });
+    });
+
+    await t.test("update valid value succeeds", async () => {
+      await db.update("users", 1, (old) => ({ ...old!, age: old!.age + 1 }));
+      deepEqual(await db.get("users", 1), { id: 1, name: "Alice Updated", age: 32 });
+    });
+
+    await t.test("no-op schema skips validation", async () => {
+      const db2 = await openDB("zod-noop", 1, {
+        items: {
+          value: schema<User>(),
+          keyPath: "id",
+        },
+      });
+      await db2.insert("items", { id: 99, name: "", age: -1 });
+      deepEqual(await db2.get("items", 99), { id: 99, name: "", age: -1 });
+      db2.idb.close();
+    });
+
+    db.idb.close();
+  });
+
+  await test("InferInput vs InferOutput types with transform schema", async (t) => {
+    // A schema where Input and Output are different types.
+    type UserInput = { id: number; rawName: string };
+    type UserOutput = { id: string; name: string };
+
+    const transformSchema: StandardSchemaV1<UserInput, UserOutput> = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: (v) => {
+          const input = v as UserInput;
+          return { value: { id: String(input.id), name: input.rawName.trim() } };
+        },
+      },
+    };
+
+    const db = await openDB("transform-schema-types", 1, {
+      users: {
+        value: transformSchema,
+        keyPath: "id",
+      },
+    });
+
+    // insert and upsert accept InferInput
+    expectTypeOf(db.insert<"users">)
+      .parameter(1)
+      .toEqualTypeOf<Readonly<UserInput> | ReadonlyArray<Readonly<UserInput>>>();
+
+    expectTypeOf(db.upsert<"users">)
+      .parameter(1)
+      .toEqualTypeOf<Readonly<UserInput> | ReadonlyArray<Readonly<UserInput>>>();
+
+    // get and getAll return InferOutput
+    expectTypeOf(db.get<"users">).returns.resolves.toEqualTypeOf<
+      Readonly<UserOutput> | undefined
+    >();
+
+    expectTypeOf(db.getAll<"users">).returns.resolves.toEqualTypeOf<Readonly<UserOutput>[]>();
+
+    // update: updater receives InferOutput (old value from DB), returns InferInput | undefined
+    const updateType = expectTypeOf(db.update<"users">);
+    const updateUpdater = updateType.parameter(2);
+    updateUpdater.parameter(0).toEqualTypeOf<Readonly<UserOutput> | undefined>();
+    updateUpdater.returns.toEqualTypeOf<Readonly<UserInput> | undefined>();
+
+    // upsert: updater receives InferOutput, returns InferInput
+    const upsertType = expectTypeOf(db.upsert<"users">);
+    const upsertUpdater = upsertType.parameter(2);
+    upsertUpdater.parameter(0).toEqualTypeOf<Readonly<UserOutput>>();
+    upsertUpdater.parameter(1).toEqualTypeOf<Readonly<UserOutput>>();
+    upsertUpdater.returns.toEqualTypeOf<Readonly<UserInput>>();
+
+    // primary key type is derived from InferOutput
+    expectTypeOf(db.get<"users">)
+      .parameter(1)
+      .toEqualTypeOf<string>();
+
+    // Verify runtime behavior
+    await t.test("insert transforms input to output", async () => {
+      await db.insert("users", { id: 1, rawName: "  Alice  " });
+      deepEqual(await db.get("users", "1"), { id: "1", name: "Alice" });
+    });
+
+    await t.test("update transforms input to output", async () => {
+      await db.update("users", "1", (oldValue) => ({
+        id: Number(oldValue!.id satisfies string),
+        rawName: oldValue!.name + "!",
+      }));
+      deepEqual(await db.get("users", "1"), { id: "1", name: "Alice!" });
+    });
+
+    await t.test("upsert transforms input to output", async () => {
+      await db.upsert("users", { id: 1, rawName: "  Alice  " }, (oldValue, newValue) => ({
+        id: Number(oldValue.id satisfies string),
+        rawName: newValue.name,
+      }));
+      deepEqual(await db.get("users", "1"), { id: "1", name: "Alice" });
+    });
+
+    await t.test("update rejects if key of transformed value changed", async () => {
+      await rejects(
+        () =>
+          db.update("users", "1", (oldValue) => ({
+            id: Number(oldValue!.id satisfies string) + 1,
+            rawName: oldValue!.name,
+          })),
+        (err) => {
+          ok(err instanceof DOMException);
+          equal(err.name, "InvalidStateError");
+          return true;
+        },
+      );
+    });
+
+    await t.test("upsert rejects if key of transformed value changed", async () => {
+      await rejects(
+        () =>
+          db.upsert("users", { id: 1, rawName: "Bob" }, (oldValue, newValue) => ({
+            id: Number(oldValue.id satisfies string) + 1,
+            rawName: newValue.name,
+          })),
+        (err) => {
+          ok(err instanceof DOMException);
+          equal(err.name, "InvalidStateError");
+          return true;
+        },
       );
     });
 

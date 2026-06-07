@@ -110,7 +110,56 @@ import { schema } from "idbts";
 const s = schema<{ id: number; name: string }>();
 ```
 
-You can substitute any StandardSchema-compatible validator (e.g. from Zod) in place of `schema<T>()`.
+## Runtime validation
+
+You can substitute any [StandardSchema](https://standardschema.dev/)-compatible validator
+in place of `schema<T>()` to get **runtime validation** on every mutation:
+
+```ts
+import { z } from "zod";
+import { openDB } from "idbts";
+
+const personSchema = z.object({
+  id: z.string().uuid(),
+  name: z.object({
+    first: z.string().min(1),
+    last: z.string().min(1),
+  }),
+  age: z.number().int().min(0),
+});
+
+const db = await openDB("my-db", 1, {
+  people: {
+    value: personSchema, // replaces schema<PersonEntry>()
+    keyPath: "id",
+  },
+});
+```
+
+Mutations that fail validation throw SchemaValidationError:
+
+```ts
+import { SchemaValidationError } from "idbts";
+
+try {
+  await db.insert("people", {
+    id: "not-a-uuid",
+    name: { first: "", last: "" },
+    age: -1,
+  });
+} catch (err) {
+  if (err instanceof SchemaValidationError) {
+    console.error("Validation failed:", err.issues);
+  }
+}
+```
+
+> [!WARNING]
+>
+> Async validators are **not** supported.
+> IndexedDB doesn't support performing other async operations while a transaction is active.
+> If you use an async validator, the transaction will be automatically aborted
+> and an error will be thrown.
 
 ## Automatic migrations
 
