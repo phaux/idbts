@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/unbound-method */
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { expectTypeOf } from "expect-type";
@@ -193,7 +195,6 @@ await suite("Database", { concurrency: true }, async () => {
     const db = await openDB("deeply-nested-key+index", 1, {
       deeplyNested: {
         keyPath: "foo.bar.baz",
-        autoIncrement: true,
         value: schema<Record>(),
         indexes: {
           byBaz: {
@@ -217,6 +218,29 @@ await suite("Database", { concurrency: true }, async () => {
           foo: { bar: { baz: value!.foo.bar.baz + "!" } },
         })),
       );
+    });
+
+    await t.test("insert fails with missing value at key path", async () => {
+      await rejects(() => db.insert("deeplyNested", { foo: { bar: {} } } as any), {
+        name: "DataError",
+      });
+    });
+
+    await t.test("upsert fails with missing value at key path", async () => {
+      await rejects(() => db.upsert("deeplyNested", { foo: { bar: {} } } as any), {
+        name: "DataError",
+      });
+      await rejects(
+        () =>
+          db.upsert("deeplyNested", { foo: { bar: { baz: "1" } } }, () => ({ foo: "wtf" }) as any),
+        { name: "DataError" },
+      );
+    });
+
+    await t.test("update fails with missing value at key path", async () => {
+      await rejects(() => db.update("deeplyNested", "1", () => ({ foo: { bar: null } }) as any), {
+        name: "DataError",
+      });
     });
 
     db.idb.close();
