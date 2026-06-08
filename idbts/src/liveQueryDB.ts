@@ -39,7 +39,7 @@ export function liveQueryDB<
   options: QueryOptions<Schema[StoreName]>,
 ): MiniObservable<StoreValue<Schema[StoreName]>[]> {
   return new MiniObservable((subscriber) => {
-    const { where = {}, orderBy = [], direction } = options;
+    const { where = {}, orderBy = [], direction, limit = Infinity } = options;
 
     // Bail out immediately if the subscriber was already cancelled.
     if (subscriber.signal?.aborted) return;
@@ -56,24 +56,38 @@ export function liveQueryDB<
      */
     const bufferedChanges: StoreChange<Schema[StoreName]>[] = [];
 
+    /**
+     * Promise chain used to serialise all async `applyChanges` calls.
+     * Each new task is appended with `.then()` so that a re-query triggered
+     * by a deletion always completes before the next batch of changes is
+     * processed, preventing torn intermediate state.
+     */
+    let queue: Promise<void> = Promise.resolve();
+
     // Open the BroadcastChannel before issuing the query
     // so we cannot miss any mutations that happen before
-    // or just afterthe query resolves.
+    // or just after the query resolves.
     const changesChannel = getStoreChangesChannel(db, storeName);
     changesChannel.addEventListener("message", (event) => {
       const changes = event.data;
       if (!currentResults) {
         // Initial query still pending — buffer the changes for later replay.
         bufferedChanges.push(...changes);
-      } else {
-        // Initial query already resolved — apply changes to the live array
-        // and emit a new value if anything changed.
-        const lastResults = currentResults;
-        applyChanges(changes);
-        if (currentResults !== lastResults) {
-          subscriber.next?.(currentResults);
-        }
+        return;
       }
+      queue = queue
+        .then(async () => {
+          if (controller.signal.aborted) return;
+          const lastResults = currentResults;
+          await applyChanges(changes);
+          if (currentResults !== lastResults) {
+            subscriber.next?.(currentResults!);
+          }
+        })
+        .catch((err: Error) => {
+          controller.abort();
+          subscriber.error?.(err);
+        });
     });
 
     // Wire up cancellation: aborting the subscriber signal closes the channel.
@@ -94,11 +108,18 @@ export function liveQueryDB<
     queryDB(db, storeName, options).then(
       (results) => {
         currentResults = results;
-        // Replay any changes that arrived while the query was in flight.
-        applyChanges(bufferedChanges);
-        bufferedChanges.length = 0;
-        // Initial emit.
-        subscriber.next?.(currentResults);
+        // Queue the replay so it runs before any live changes that arrived
+        // between currentResults being set and this task running.
+        queue = queue
+          .then(async () => {
+            await applyChanges(bufferedChanges);
+            bufferedChanges.length = 0;
+            subscriber.next?.(currentResults!);
+          })
+          .catch((err: Error) => {
+            controller.abort();
+            subscriber.error?.(err);
+          });
       },
       (err: Error) => {
         // Clean up and propagate query errors.
@@ -112,14 +133,18 @@ export function liveQueryDB<
      *
      * For each change:
      * - If the change has an `oldValue`, the corresponding record is removed.
+     *   When `limit` is set and the removal brings `currentResults` below the
+     *   limit, a fresh re-query is `await`ed to refill the window.
      * - If the change has a `newValue` that satisfies the active `where` filters,
      *   the old entry with the same primary key is evicted (to handle updates)
      *   and the new value is inserted at an appropriate position.
+     *   The result is then truncated to `limit` when set.
      *
-     * The array reference is replaced (not mutated in-place) whenever any modification is made,
-     * making change detection via reference equality straightforward for callers.
+     * The array reference is replaced (not mutated in-place)
+     * only when the visible content actually changes,
+     * making reference-equality change detection reliable for callers.
      */
-    function applyChanges(changes: readonly StoreChange<Schema[StoreName]>[]) {
+    async function applyChanges(changes: readonly StoreChange<Schema[StoreName]>[]) {
       for (const change of changes) {
         if (change.oldValue) {
           // Remove the stale record from the result set by its primary key.
@@ -128,8 +153,29 @@ export function liveQueryDB<
             (item) => indexedDB.cmp(getKeyPathValue(item, primaryKeyPath), key) === 0,
           );
           if (index >= 0) {
+            const oldLength = currentResults!.length;
+
+            // Clone array because splice mutates.
             currentResults = Array.from(currentResults!);
             currentResults.splice(index, 1);
+
+            // When we were at the limit and we've fallen below it,
+            // refill by re-running the full query.
+            if (oldLength === limit && currentResults.length < limit) {
+              const prevResults = currentResults;
+              const freshResults = await queryDB(db, storeName, options);
+              if (controller.signal.aborted) return;
+              // Merge: reuse existing object references for items that are still present
+              // so that reference-equality checks remain valid.
+              currentResults = freshResults.map((freshItem) => {
+                const k = getKeyPathValue(freshItem, primaryKeyPath);
+                return (
+                  prevResults.find(
+                    (item) => indexedDB.cmp(getKeyPathValue(item, primaryKeyPath), k) === 0,
+                  ) ?? freshItem
+                );
+              });
+            }
           }
         }
         if (change.newValue) {
@@ -137,7 +183,7 @@ export function liveQueryDB<
           if (!where || queryMatches(change.newValue, where)) {
             // Evict any existing entry with the same primary key (upsert semantics),
             // append the new value, and re-sort.
-            currentResults = currentResults!
+            const newResults = currentResults!
               .filter((item) => indexedDB.cmp(getKeyPathValue(item, primaryKeyPath), key) !== 0)
               .concat([change.newValue])
               .sort((a, b) => {
@@ -156,7 +202,18 @@ export function liveQueryDB<
                 let order = indexedDB.cmp(aKey, bKey);
                 if (direction === "prev") order = -order;
                 return order;
-              });
+              })
+              .slice(0, limit);
+
+            // Only replace the array reference when the visible content actually changed,
+            // so that callers relying on reference equality are not misled
+            // by no-op inserts that land beyond the limit window.
+            if (
+              newResults.length !== currentResults!.length ||
+              newResults.some((item, i) => item !== currentResults![i])
+            ) {
+              currentResults = newResults;
+            }
           }
         }
       }
