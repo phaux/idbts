@@ -10,7 +10,7 @@ export class MiniObservable<T> {
    * Creates a new observable.
    *
    * @param cb - Producer callback invoked on each {@link subscribe} call.
-   *   Receives a subscriber through which it can push values and react to cancellation.
+   * Receives a subscriber through which it can push values and react to cancellation.
    */
   constructor(cb: (subscriber: MiniSubscriber<T>) => void) {
     this.#cb = cb;
@@ -20,11 +20,12 @@ export class MiniObservable<T> {
    * Subscribes to the observable using the given observer.
    *
    * Pass an abort signal to cancel the subscription in the future.
-   * If no signal is supplied the observable never completes.
+   * If no signal is supplied the observable never completes,
+   * unless an error is encountered.
    */
   subscribe(
     { next, error }: MiniObserver<T>,
-    { signal }: { signal?: AbortSignal | undefined },
+    { signal }: { signal?: AbortSignal | undefined } = {},
   ): void {
     this.#cb({ next, error, signal });
   }
