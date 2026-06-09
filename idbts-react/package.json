@@ -2,7 +2,7 @@
   "name": "idbts-react",
   "version": "0.1.0",
   "description": "Typed IndexedDB wrapper for React",
-  "license": "ISC",
+  "license": "MIT",
   "author": "phaux",
   "type": "module",
   "exports": {
