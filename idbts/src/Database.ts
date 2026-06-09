@@ -358,3 +358,8 @@ export type StoreInputValue<Schema extends AnyStoreSchema> = Readonly<
 export type StoreValue<Schema extends AnyStoreSchema> = Readonly<
   StandardSchemaV1.InferOutput<Schema["value"]>
 >;
+
+/**
+ * Infer the database schema from a {@link Database} instance.
+ */
+export type DBSchemaOf<DB> = DB extends Database<infer Schema> ? Schema : never;
