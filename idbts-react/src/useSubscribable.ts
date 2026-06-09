@@ -1,22 +1,11 @@
-import { use, useEffect, useReducer, useRef, useState } from "react";
+import type { MiniObserver } from "idbts";
+import { use, useEffect, useReducer, useRef } from "react";
 
 /**
  * Minimal observable interface compatible with any modern observable library.
  */
 export interface Subscribable<T> {
-  subscribe(observer: SubscribableObserver<T>, options: { signal?: AbortSignal }): void;
-}
-
-/**
- * Observer callbacks passed to {@link Subscribable.subscribe}.
- */
-export interface SubscribableObserver<T> {
-  /** Called each time the observable emits a new value. */
-  next?: (value: T) => void;
-  /** Called when the observable terminates with an error. */
-  error?: (err: Error) => void;
-  /** Called when the observable completes normally. */
-  complete?: () => void;
+  subscribe(observer: MiniObserver<T>, options?: { signal?: AbortSignal }): void;
 }
 
 /**
@@ -27,14 +16,18 @@ const observableCache = new Map<React.DependencyList, Subscribable<unknown>>();
 /**
  * Holds the pending/resolved promise used for React Suspense.
  */
-const promiseCache = new WeakMap<Subscribable<unknown>, Promise<unknown>>();
+const promiseCache = new WeakMap<Subscribable<unknown>, Promise<void>>();
 /**
  * Stores the most recently emitted value so new subscribers get it immediately.
  */
 const valueCache = new WeakMap<Subscribable<unknown>, unknown>();
+/**
+ * Stores the most recently emitted error so new subscribers get it immediately.
+ */
+const errorCache = new WeakMap<Subscribable<unknown>, Error>();
 
 /** How long (ms) to keep an unsubscribed observable in the cache before tearing it down. */
-const CLEANUP_DELAY = 3000;
+const CLEANUP_DELAY = 1000;
 
 /**
  * Low-level hook that subscribes to a {@link Subscribable}
@@ -71,7 +64,7 @@ export function useSubscribable<T>(
     // Create a multicast observable which subscribes to source at most once.
     const source = getObservable();
     let controller: AbortController | undefined;
-    const observers = new Set<SubscribableObserver<T>>();
+    const observers = new Set<MiniObserver<T>>();
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const newObservable: Subscribable<T> = {
       subscribe: (observer, options) => {
@@ -90,18 +83,11 @@ export function useSubscribable<T>(
             {
               next: (val) => {
                 valueCache.set(newObservable, val);
-                // Clone observers in case the list changes during emission
-                for (const obs of new Set(observers)) obs.next?.(val);
+                for (const obs of Array.from(observers)) obs.next?.(val);
               },
               error: (err) => {
-                const lastObservers = new Set(observers);
-                handleFinalize();
-                for (const obs of lastObservers) obs.error?.(err);
-              },
-              complete: () => {
-                const lastObservers = new Set(observers);
-                handleFinalize();
-                for (const obs of lastObservers) obs.complete?.();
+                errorCache.set(newObservable, err);
+                for (const obs of Array.from(observers)) obs.error?.(err);
               },
             },
             { signal: controller.signal },
@@ -113,39 +99,27 @@ export function useSubscribable<T>(
         }
 
         // Register the unsubscriber
-        if (options.signal?.aborted) unsubscribe();
-        else options.signal?.addEventListener("abort", unsubscribe);
+        if (options?.signal?.aborted) unsubscribe();
+        else options?.signal?.addEventListener("abort", unsubscribe);
         function unsubscribe() {
-          if (!observers.has(observer)) return;
           observers.delete(observer);
           // If this was the last subscriber, schedule cleanup
-          if (observers.size === 0) scheduleCleanup();
-        }
-
-        function handleFinalize() {
-          // Reset this observable to the initial state
-          controller = undefined;
-          observers.clear();
-          valueCache.delete(newObservable);
-          promiseCache.delete(newObservable);
-          // Schedule cleanup in case nobody subscribes again
-          scheduleCleanup();
-        }
-
-        function scheduleCleanup() {
-          if (timeout != null) return; // Cleanup already scheduled
-          timeout = setTimeout(() => {
-            // Unsubscribe source if any
-            controller?.abort();
-            controller = undefined;
-            // Remove this observable from cache
-            for (const [key, value] of observableCache) {
-              if (value === newObservable) {
-                observableCache.delete(key);
-                break;
+          if (observers.size === 0) {
+            timeout = setTimeout(() => {
+              // Unsubscribe source
+              controller!.abort();
+              // Remove this observable from cache
+              valueCache.delete(newObservable);
+              errorCache.delete(newObservable);
+              promiseCache.delete(newObservable);
+              for (const [key, value] of observableCache) {
+                if (value === newObservable) {
+                  observableCache.delete(key);
+                  break;
+                }
               }
-            }
-          }, CLEANUP_DELAY);
+            }, CLEANUP_DELAY);
+          }
         }
       },
     };
@@ -154,17 +128,20 @@ export function useSubscribable<T>(
   }
 
   // Get or initialize promise for first value
-  let promise = promiseCache.get(observable) as Promise<T> | undefined;
+  let promise = promiseCache.get(observable);
   if (!promise) {
-    promise = new Promise<T>((resolve, reject) => {
+    promise = new Promise<void>((resolve, reject) => {
       const controller = new AbortController();
       observable.subscribe(
         {
-          next: (val) => {
-            resolve(val);
+          next: () => {
+            resolve();
             controller.abort();
           },
-          error: (err) => reject(err),
+          error: (err) => {
+            reject(err);
+            controller.abort();
+          },
         },
         { signal: controller.signal },
       );
@@ -172,28 +149,29 @@ export function useSubscribable<T>(
     promiseCache.set(observable, promise);
   }
 
-  const initialValue = use(promise);
+  use(promise);
 
-  const value = useRef<T>(initialValue);
-  const [error, setError] = useState<Error>();
+  const value = useRef<T>(undefined!); // Will be assigned in next step
+  const error = useRef<Error>(undefined);
   const rerender = useReducer((x) => x + 1, 0)[1];
 
   // Set the value immediately on every render.
   // This avoids waiting for effect to run.
-  value.current = valueCache.has(observable) ? (valueCache.get(observable) as T) : initialValue;
+  value.current = valueCache.get(observable) as T;
+  error.current = errorCache.get(observable);
 
   // Subscribe to live updates until the source observable changes.
   useEffect(() => {
     const controller = new AbortController();
     observable.subscribe(
       {
-        next: (val) => {
-          if (!Object.is(val, value.current)) {
-            value.current = val;
-            rerender();
-          }
+        next: () => {
+          // `value.current` will be reassigned in next render
+          rerender();
         },
-        error: (err) => setError(err),
+        error: () => {
+          rerender();
+        },
       },
       { signal: controller.signal },
     );
@@ -202,6 +180,8 @@ export function useSubscribable<T>(
     };
   }, [observable]);
 
-  if (error) throw error;
+  if (error.current) {
+    throw error.current;
+  }
   return value.current;
 }
