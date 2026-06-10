@@ -138,8 +138,8 @@ export async function queryDB<
     if (
       queryEqFields.has(prefix) &&
       Array.from(sortableQueryFields).every((field) => allIndexFields.includes(field)) &&
-      indexKeyFields.every((field) => allQueryFields.has(field)) &&
-      queryOrderFields.every((field, i) => allIndexFields[i + 1] === field)
+      queryOrderFields.every((field, i) => allIndexFields[i + 1] === field) &&
+      indexKeyFields.every((field) => allQueryFields.has(field))
     ) {
       // Found a zig zag index candidate.
       // Group found indexes by the postfix fields,
