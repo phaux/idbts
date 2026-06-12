@@ -4,7 +4,7 @@
  * @template T - The type of values emitted by the observable.
  */
 export class MiniObservable<T> {
-  #cb: (subscriber: MiniSubscriber<T>) => void;
+  readonly #cb: (subscriber: MiniSubscriber<T>) => void;
 
   /**
    * Creates a new observable.
@@ -25,7 +25,7 @@ export class MiniObservable<T> {
    */
   subscribe(
     { next, error }: MiniObserver<T>,
-    { signal }: { signal?: AbortSignal | undefined } = {},
+    { signal }: { readonly signal?: AbortSignal | undefined } = {},
   ): void {
     this.#cb({ next, error, signal });
   }
@@ -36,9 +36,9 @@ export class MiniObservable<T> {
  */
 export interface MiniObserver<T> {
   /** Called with each value emitted by the producer. */
-  next?: ((value: T) => void) | undefined;
+  readonly next?: ((value: T) => void) | undefined;
   /** Called when the producer encounters an unrecoverable error. */
-  error?: ((error: Error) => void) | undefined;
+  readonly error?: ((error: Error) => void) | undefined;
 }
 
 /**
@@ -50,5 +50,5 @@ export interface MiniSubscriber<T> extends MiniObserver<T> {
   /**
    * When aborted, signals the producer that the consumer no longer needs values.
    */
-  signal?: AbortSignal | undefined;
+  readonly signal?: AbortSignal | undefined;
 }

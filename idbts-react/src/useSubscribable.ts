@@ -5,7 +5,7 @@ import { use, useEffect, useReducer, useRef } from "react";
  * Minimal observable interface compatible with any modern observable library.
  */
 export interface Subscribable<T> {
-  subscribe(observer: MiniObserver<T>, options?: { signal?: AbortSignal }): void;
+  subscribe: (observer: MiniObserver<T>, options?: { signal?: AbortSignal }) => void;
 }
 
 /**
@@ -54,7 +54,7 @@ export function useSubscribable<T>(
   // Try to find an existing observable for this cache key
   for (const [key, value] of observableCache) {
     if (key.length === cacheKey.length && key.every((k, i) => Object.is(k, cacheKey[i]))) {
-      observable = value;
+      observable = value as Subscribable<T>;
       break;
     }
   }
@@ -99,7 +99,7 @@ export function useSubscribable<T>(
         }
 
         // Register the unsubscriber
-        if (options?.signal?.aborted) unsubscribe();
+        if (options?.signal?.aborted ?? false) unsubscribe();
         else options?.signal?.addEventListener("abort", unsubscribe);
         function unsubscribe() {
           observers.delete(observer);

@@ -135,13 +135,13 @@ export class Database<const Schema extends AnyDatabaseSchema> {
    */
   async insert<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    values: StoreInputValue<Schema[StoreName]> | ReadonlyArray<StoreInputValue<Schema[StoreName]>>,
+    values: StoreInputValue<Schema[StoreName]> | readonly StoreInputValue<Schema[StoreName]>[],
   ): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
     const valueArray: readonly StoreInputValue<Schema[StoreName]>[] = Array.isArray(values)
       ? values
-      : [values as any];
+      : [values];
     try {
       const changes: StoreChange<Schema[StoreName]>[] = [];
       for (const value of valueArray) {
@@ -170,7 +170,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
    */
   async upsert<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-    values: StoreInputValue<Schema[StoreName]> | ReadonlyArray<StoreInputValue<Schema[StoreName]>>,
+    values: StoreInputValue<Schema[StoreName]> | readonly StoreInputValue<Schema[StoreName]>[],
     updater?: (
       oldValue: StoreValue<Schema[StoreName]>,
       newValue: StoreValue<Schema[StoreName]>,
@@ -220,7 +220,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
     storeName: StoreName,
     keys:
       | Extract<StorePrimaryKey<Schema[StoreName]>, number | string>
-      | ReadonlyArray<StorePrimaryKey<Schema[StoreName]>>,
+      | readonly StorePrimaryKey<Schema[StoreName]>[],
     updater: (
       value: StoreValue<Schema[StoreName]> | undefined,
     ) => StoreInputValue<Schema[StoreName]> | undefined,
@@ -288,14 +288,16 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   /**
    * Deletes all objects from the store.
    */
-  async clear<const StoreName extends keyof Schema & string>(storeName: StoreName): Promise<void> {
+  async clear(storeName: keyof Schema & string): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
     const oldValues = await idbReqToPromise(
-      store.getAll() as IDBRequest<StoreValue<Schema[StoreName]>[]>,
+      store.getAll() as IDBRequest<StoreValue<Schema[keyof Schema]>[]>,
     );
     await idbReqToPromise(store.clear());
-    const changes: StoreChange<Schema[StoreName]>[] = oldValues.map((oldValue) => ({ oldValue }));
+    const changes: StoreChange<Schema[keyof Schema]>[] = oldValues.map((oldValue) => ({
+      oldValue,
+    }));
     sendStoreChanges(this, storeName, changes);
   }
 
@@ -318,16 +320,18 @@ export class Database<const Schema extends AnyDatabaseSchema> {
  * Error thrown when a value fails schema validation.
  */
 export class SchemaValidationError extends Error {
-  readonly issues: ReadonlyArray<StandardSchemaV1.Issue>;
+  readonly issues: readonly StandardSchemaV1.Issue[];
 
-  constructor(issues: ReadonlyArray<StandardSchemaV1.Issue>) {
+  constructor(issues: readonly StandardSchemaV1.Issue[]) {
     super(
       `Schema validation failed:\n` +
         issues
-          .map(
-            (i) =>
-              i.path?.map((p) => (typeof p == "object" ? p.key : p)).join(".") + ": " + i.message,
-          )
+          .map((i) => {
+            if (!i.path) return i.message;
+            return (
+              i.message + " at " + i.path.map((p) => (typeof p == "object" ? p.key : p)).join(".")
+            );
+          })
           .join("\n"),
     );
     this.name = "SchemaValidationError";

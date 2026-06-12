@@ -72,10 +72,10 @@ export type TypedBroadcastChannel<T> = Omit<
   BroadcastChannel,
   "postMessage" | "addEventListener"
 > & {
-  postMessage(message: T): void;
-  addEventListener(
+  postMessage: (message: T) => void;
+  addEventListener: (
     type: "message",
     listener: (this: BroadcastChannel, ev: MessageEvent<T>) => void,
     options?: boolean | AddEventListenerOptions,
-  ): void;
+  ) => void;
 };

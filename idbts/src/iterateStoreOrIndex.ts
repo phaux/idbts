@@ -78,8 +78,8 @@ export interface CursorIterationOptions {
  */
 export async function* iterateStoreOrIndex<T>(
   iteratable: IDBObjectStore | IDBIndex,
-  keyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
-  primaryKeyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
+  keyRanges: IDBKeyRange | readonly (IDBKeyRange | undefined)[] | undefined,
+  primaryKeyRanges: IDBKeyRange | readonly (IDBKeyRange | undefined)[] | undefined,
   options: CursorIterationOptions,
 ): AsyncGenerator<T, undefined, undefined> {
   const { direction, limit = Infinity } = options;

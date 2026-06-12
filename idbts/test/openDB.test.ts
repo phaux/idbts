@@ -4,8 +4,14 @@ import { openDB } from "../src/openDB.ts";
 import { schema } from "../src/schema.ts";
 
 await suite("openDB", async () => {
-  type StrRecord = { id: number; str: string };
-  type NumRecord = { id: number; num: number };
+  interface StrRecord {
+    id: number;
+    str: string;
+  }
+  interface NumRecord {
+    id: number;
+    num: number;
+  }
 
   await test("creates database with 1 store", async (t) => {
     const onUpgradeNeeded = t.mock.fn<NonNullable<IDBOpenDBRequest["onupgradeneeded"]>>();
@@ -21,7 +27,7 @@ await suite("openDB", async () => {
     db.idb.close();
     deepEqual(onUpgradeNeeded.mock.calls.length, 1);
     deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.oldVersion, 0);
-    deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.newVersion, 1);
+    deepEqual(onUpgradeNeeded.mock.calls[0].arguments[0].newVersion, 1);
   });
 
   await test("same version doesn't call onUpgradeNeeded", async (t) => {
@@ -57,7 +63,7 @@ await suite("openDB", async () => {
     db.idb.close();
     deepEqual(onUpgradeNeeded.mock.calls.length, 1);
     deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.oldVersion, 1);
-    deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.newVersion, 2);
+    deepEqual(onUpgradeNeeded.mock.calls[0].arguments[0].newVersion, 2);
   });
 
   await test("upgrade adds indexes", async (t) => {
@@ -83,7 +89,7 @@ await suite("openDB", async () => {
     db.idb.close();
     deepEqual(onUpgradeNeeded.mock.calls.length, 1);
     deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.oldVersion, 2);
-    deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.newVersion, 3);
+    deepEqual(onUpgradeNeeded.mock.calls[0].arguments[0].newVersion, 3);
   });
 
   await test("upgrade deletes indexes", async () => {

@@ -30,7 +30,10 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
   });
 
   await test("by primary key", async (t) => {
-    type Record = { n: number; s?: string };
+    interface Record {
+      n: number;
+      s?: string;
+    }
     const db = await openDB("live-query-primary-key", 1, {
       nums: {
         value: schema<Record>(),
@@ -207,7 +210,11 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
   });
 
   await test("by compound primary key", async (t) => {
-    type Record = { x: number; y: number; s?: string };
+    interface Record {
+      x: number;
+      y: number;
+      s?: string;
+    }
     const db = await openDB("live-query-compound-key", 1, {
       points: {
         value: schema<Record>(),
@@ -339,7 +346,11 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
   });
 
   await test("by index", async (t) => {
-    type Record = { id: number; name: string; age: number };
+    interface Record {
+      id: number;
+      name: string;
+      age: number;
+    }
     const db = await openDB("live-query-index", 1, {
       people: {
         value: schema<Record>(),
@@ -563,7 +574,9 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
   });
 
   await test("with limit", async (t) => {
-    type Record = { n: number };
+    interface Record {
+      n: number;
+    }
     const db = await openDB("live-query-limit", 1, {
       nums: {
         value: schema<Record>(),
@@ -672,7 +685,10 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
     // DB: [1, 2, 3, 5, 6]
 
     await t.test("limit + orderBy", async () => {
-      type Item = { id: number; score: number };
+      interface Item {
+        id: number;
+        score: number;
+      }
       const db2 = await openDB("live-query-limit-orderby", 1, {
         items: {
           value: schema<Item>(),
@@ -719,15 +735,15 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
  * (Promise microtasks, which drain between hops) all complete before the test continues.
  * 15 is safely above the maximum steps in these tests.
  */
-function tick() {
+async function tick() {
   let p: Promise<void> = Promise.resolve();
   for (let i = 0; i < 15; i++) {
-    p = p.then(() => new Promise<void>((resolve) => setImmediate(resolve)));
+    p = p.then(async () => new Promise<void>((resolve) => setImmediate(resolve)));
   }
   return p;
 }
 
-function collect<T>(observable: MiniObservable<T>, signal: AbortSignal): Promise<T[]> {
+async function collect<T>(observable: MiniObservable<T>, signal: AbortSignal): Promise<T[]> {
   return new Promise((resolve, reject) => {
     const results: T[] = [];
     const ac = new AbortController();

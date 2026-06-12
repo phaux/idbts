@@ -42,7 +42,7 @@ export function liveQueryDB<
     const { where = {}, orderBy = [], direction, limit = Infinity } = options;
 
     // Bail out immediately if the subscriber was already cancelled.
-    if (subscriber.signal?.aborted) return;
+    if (subscriber.signal?.aborted ?? false) return;
 
     /**
      * `currentResults` is undefined until the initial query resolves.
@@ -84,9 +84,9 @@ export function liveQueryDB<
             subscriber.next?.(currentResults!);
           }
         })
-        .catch((err: Error) => {
+        .catch((err: unknown) => {
           controller.abort();
-          subscriber.error?.(err);
+          subscriber.error?.(err as Error);
         });
     });
 
@@ -116,15 +116,15 @@ export function liveQueryDB<
             bufferedChanges.length = 0;
             subscriber.next?.(currentResults!);
           })
-          .catch((err: Error) => {
+          .catch((err: unknown) => {
             controller.abort();
-            subscriber.error?.(err);
+            subscriber.error?.(err as Error);
           });
       },
-      (err: Error) => {
+      (err: unknown) => {
         // Clean up and propagate query errors.
         controller.abort();
-        subscriber.error?.(err);
+        subscriber.error?.(err as Error);
       },
     );
 
@@ -180,7 +180,7 @@ export function liveQueryDB<
         }
         if (change.newValue) {
           const key = getKeyPathValue(change.newValue, primaryKeyPath);
-          if (!where || queryMatches(change.newValue, where)) {
+          if (queryMatches(change.newValue, where)) {
             // Evict any existing entry with the same primary key (upsert semantics),
             // append the new value, and re-sort.
             const newResults = currentResults!

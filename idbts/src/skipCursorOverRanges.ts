@@ -20,8 +20,8 @@ import { logicalRangeCmp, toLogicalRange } from "./LogicalRange.ts";
  */
 export async function skipCursorOverRanges(
   cursor: IDBCursorWithValue | null,
-  keyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
-  primaryKeyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
+  keyRanges: IDBKeyRange | readonly (IDBKeyRange | undefined)[] | undefined,
+  primaryKeyRanges: IDBKeyRange | readonly (IDBKeyRange | undefined)[] | undefined,
   reverse: boolean,
 ): Promise<IDBCursorWithValue | null> {
   while (cursor) {
@@ -65,7 +65,7 @@ export async function skipCursorOverRanges(
  */
 function matchKeyToRanges(
   key: IDBValidKey,
-  ranges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined>,
+  ranges: IDBKeyRange | readonly (IDBKeyRange | undefined)[],
   reverse: boolean,
 ): KeyMatchResult {
   if ((Array.isArray as (v: unknown) => v is readonly unknown[])(ranges)) {
@@ -77,7 +77,7 @@ function matchKeyToRanges(
       if (!range) continue;
       const logicalRange = toLogicalRange(range, reverse);
       const order = logicalRangeCmp(logicalRange, compositeKey[keyIdx]!, reverse);
-      if (order == -2) {
+      if (order === -2) {
         // Key component is before the range. The next key is:
         // - current cursor value for initial components (if any);
         // - range start for current component;
@@ -89,7 +89,7 @@ function matchKeyToRanges(
           nextKey.push(reverse ? getMaxKey() : minKey);
         return { matches: false, nextKey };
       }
-      if (order == -1) {
+      if (order === -1) {
         // Key component is at the starting boundary, just before the range.
         // Next key is `undefined` to indicate the cursor should simply advance one step.
         return { matches: false, nextKey: undefined };
@@ -110,11 +110,11 @@ function matchKeyToRanges(
     // treat the key as a simple (non-composite) key.
     const logicalRange = toLogicalRange(ranges, reverse);
     const order = logicalRangeCmp(logicalRange, key, reverse);
-    if (order == -2) {
+    if (order === -2) {
       // Key is before the range. Next key is the start of the range.
       return { matches: false, nextKey: logicalRange.start };
     }
-    if (order == -1) {
+    if (order === -1) {
       // Key is at the starting boundary of the range.
       // Next key is `undefined` to indicate the cursor should simply advance one step.
       return { matches: false, nextKey: undefined };

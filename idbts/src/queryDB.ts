@@ -58,7 +58,7 @@ export async function queryDB<
   /** Map of normalized query filters passed in the where clause. */
   const queryFilterMap = new Map(
     Object.entries<MaybeKeyRange<IDBValidKey> | undefined>(where)
-      .filter(([, range]) => range != undefined)
+      .filter(([, range]) => range != null)
       .map(([path, range]) => [path, toKeyRange(range)] as const),
   );
   /** Set of field names constrained by an equality filter (single value range). */

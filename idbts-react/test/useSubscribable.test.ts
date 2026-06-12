@@ -35,7 +35,7 @@ await suite("useSubscribable", async () => {
       return { error };
     }
 
-    render() {
+    render(): React.ReactNode {
       if (this.state.error) {
         return h("span", {}, "Error: " + this.state.error.message);
       }

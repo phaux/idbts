@@ -7,8 +7,8 @@ if (!GlobalRegistrator.isRegistered) GlobalRegistrator.register();
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 globalThis.BroadcastChannel = class FakeBroadcastChannel extends EventTarget {
-  static #channels = new Map<string, Set<FakeBroadcastChannel>>();
-  #name: string;
+  static readonly #channels = new Map<string, Set<FakeBroadcastChannel>>();
+  readonly #name: string;
 
   constructor(name: string) {
     super();

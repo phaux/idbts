@@ -70,13 +70,13 @@ export function logicalRangeCmp(
     let order = indexedDB.cmp(key, start);
     if (reverse) order = -order;
     if (order < 0) return -2;
-    if (startOpen && order == 0) return -1;
+    if (startOpen && order === 0) return -1;
   }
   if (end != null) {
     let order = indexedDB.cmp(key, end);
     if (reverse) order = -order;
     if (order > 0) return 2;
-    if (endOpen && order == 0) return 1;
+    if (endOpen && order === 0) return 1;
   }
   return 0;
 }

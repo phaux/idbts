@@ -57,14 +57,14 @@ await suite("useDBQuery", async () => {
           throw err;
         }
       }
-      await act(() => new Promise((resolve) => setTimeout(resolve, 1)));
+      await act(async () => new Promise((resolve) => void setTimeout(resolve, 1)));
     }
   }
 
   await test("query by primary key", async () => {
     await act(async () => root.render(h(UserList, { where: { id: 1 } })));
     await waitForText("No users");
-    await rejects(() => waitForText("Some user"));
+    await rejects(async () => waitForText("Some user"));
     await act(async () => db.insert("users", { id: 1, name: "Alice" }));
     // DB: 1 Alice
     await waitForText("Alice");

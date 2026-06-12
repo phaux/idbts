@@ -80,7 +80,7 @@ export interface OpenDBOptions {
  *
  * @see {@link indexedDB.open}
  */
-export function openDB<const T extends AnyDatabaseSchema>(
+export async function openDB<const T extends AnyDatabaseSchema>(
   name: string,
   version: number,
   schema: T,

@@ -2,8 +2,8 @@
 import "fake-indexeddb/auto";
 
 globalThis.BroadcastChannel = class FakeBroadcastChannel extends EventTarget {
-  static #channels = new Map<string, Set<FakeBroadcastChannel>>();
-  #name: string;
+  static readonly #channels = new Map<string, Set<FakeBroadcastChannel>>();
+  readonly #name: string;
 
   constructor(name: string) {
     super();

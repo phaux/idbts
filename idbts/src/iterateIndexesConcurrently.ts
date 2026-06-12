@@ -63,16 +63,16 @@ import { skipCursorOverRanges } from "./skipCursorOverRanges.ts";
  */
 
 export async function* iterateIndexesConcurrently<T>(
-  indexValues: ReadonlyArray<readonly [index: IDBObjectStore | IDBIndex, value: IDBValidKey]>,
-  postfixKeyRanges: ReadonlyArray<IDBKeyRange | undefined> | undefined,
-  primaryKeyRanges: IDBKeyRange | ReadonlyArray<IDBKeyRange | undefined> | undefined,
+  indexValues: readonly (readonly [index: IDBObjectStore | IDBIndex, value: IDBValidKey])[],
+  postfixKeyRanges: readonly (IDBKeyRange | undefined)[] | undefined,
+  primaryKeyRanges: IDBKeyRange | readonly (IDBKeyRange | undefined)[] | undefined,
   options: CursorIterationOptions,
 ): AsyncGenerator<T, undefined, undefined> {
   const { direction, limit = Infinity } = options;
 
   // Create a cursor for every filter.
   let cursors = await Promise.all(
-    indexValues.map(([index, value]) => {
+    indexValues.map(async ([index, value]) => {
       // For composite indexes, value can be a prefix of the indexed key.
       // In that case we want to query for all keys starting with the prefix.
       const range = Array.isArray(value)
@@ -86,7 +86,7 @@ export async function* iterateIndexesConcurrently<T>(
   while (i < limit) {
     // Move all cursors according to postfix and primary key ranges.
     cursors = await Promise.all(
-      cursors.map((cursor) => {
+      cursors.map(async (cursor) => {
         // First key part is already constrained by cursor's range
         const ranges = [undefined, ...(postfixKeyRanges ?? [])];
         return skipCursorOverRanges(cursor, ranges, primaryKeyRanges, direction === "prev");
@@ -119,7 +119,7 @@ export async function* iterateIndexesConcurrently<T>(
       i++;
       // Move all cursors to their next item and repeat.
       cursors = await Promise.all(
-        cursors.map((cursor) => {
+        cursors.map(async (cursor) => {
           cursor.continue();
           return idbReqToPromise(cursor.request as IDBRequest<IDBCursorWithValue | null>);
         }),

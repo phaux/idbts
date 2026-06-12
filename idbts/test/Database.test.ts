@@ -12,14 +12,14 @@ import { schema } from "../src/schema.ts";
 
 await suite("Database", { concurrency: true }, async () => {
   await test("inline key and index", async (t) => {
-    type NameRecord = {
+    interface NameRecord {
       readonly id: number;
       readonly name: string;
-    };
-    type DateRecord = {
+    }
+    interface DateRecord {
       readonly id: number | string;
       readonly created: Date;
-    };
+    }
     const db = await openDB("inline-key+index", 1, {
       num2name: {
         keyPath: "id",
@@ -113,7 +113,7 @@ await suite("Database", { concurrency: true }, async () => {
     });
 
     await t.test("upsert many rollbacks if updater throws", async () => {
-      await rejects(() =>
+      await rejects(async () =>
         db.upsert(
           "num2name",
           [
@@ -133,7 +133,7 @@ await suite("Database", { concurrency: true }, async () => {
     });
 
     await t.test("upsert throws if key changed", async () => {
-      await rejects(() =>
+      await rejects(async () =>
         db.upsert("num2name", { id: 1, name: "foo!" }, (oldValue, newValue) => ({
           ...oldValue,
           ...newValue,
@@ -149,7 +149,7 @@ await suite("Database", { concurrency: true }, async () => {
     });
 
     await t.test("update many rollbacks if one fails", async () => {
-      await rejects(() =>
+      await rejects(async () =>
         db.update("num2name", [1, 2], (value) => {
           if (value!.id === 2) {
             throw new Error("fail");
@@ -167,7 +167,7 @@ await suite("Database", { concurrency: true }, async () => {
     });
 
     await t.test("update throws if key changed", async () => {
-      await rejects(() => db.update("num2name", 1, (value) => ({ ...value!, id: 2 })));
+      await rejects(async () => db.update("num2name", 1, (value) => ({ ...value!, id: 2 })));
     });
 
     await t.test("delete", async () => {
@@ -191,7 +191,9 @@ await suite("Database", { concurrency: true }, async () => {
   });
 
   await test("deeply nested key and index", async (t) => {
-    type Record = { foo: { bar: { baz: string } } };
+    interface Record {
+      foo: { bar: { baz: string } };
+    }
     const db = await openDB("deeply-nested-key+index", 1, {
       deeplyNested: {
         keyPath: "foo.bar.baz",
@@ -213,7 +215,7 @@ await suite("Database", { concurrency: true }, async () => {
     });
 
     await t.test("update throws if key changed", async () => {
-      await rejects(() =>
+      await rejects(async () =>
         db.update("deeplyNested", "1", (value) => ({
           foo: { bar: { baz: value!.foo.bar.baz + "!" } },
         })),
@@ -221,26 +223,29 @@ await suite("Database", { concurrency: true }, async () => {
     });
 
     await t.test("insert fails with missing value at key path", async () => {
-      await rejects(() => db.insert("deeplyNested", { foo: { bar: {} } } as any), {
+      await rejects(async () => db.insert("deeplyNested", { foo: { bar: {} } } as any), {
         name: "DataError",
       });
     });
 
     await t.test("upsert fails with missing value at key path", async () => {
-      await rejects(() => db.upsert("deeplyNested", { foo: { bar: {} } } as any), {
+      await rejects(async () => db.upsert("deeplyNested", { foo: { bar: {} } } as any), {
         name: "DataError",
       });
       await rejects(
-        () =>
+        async () =>
           db.upsert("deeplyNested", { foo: { bar: { baz: "1" } } }, () => ({ foo: "wtf" }) as any),
         { name: "DataError" },
       );
     });
 
     await t.test("update fails with missing value at key path", async () => {
-      await rejects(() => db.update("deeplyNested", "1", () => ({ foo: { bar: null } }) as any), {
-        name: "DataError",
-      });
+      await rejects(
+        async () => db.update("deeplyNested", "1", () => ({ foo: { bar: null } }) as any),
+        {
+          name: "DataError",
+        },
+      );
     });
 
     db.idb.close();
@@ -254,7 +259,7 @@ await suite("Database", { concurrency: true }, async () => {
       },
     });
 
-    await rejects(() => db.insert("invalid", {}));
+    await rejects(async () => db.insert("invalid", {}));
 
     expectTypeOf(db.get<"invalid">)
       .parameter(1)
@@ -264,7 +269,9 @@ await suite("Database", { concurrency: true }, async () => {
   });
 
   await test("invalid key path - boolean", async () => {
-    type Record = { foo: boolean };
+    interface Record {
+      foo: boolean;
+    }
     const db = await openDB("boolean-key-path", 1, {
       invalid: {
         keyPath: "foo",
@@ -272,7 +279,7 @@ await suite("Database", { concurrency: true }, async () => {
       },
     });
 
-    await rejects(() => db.insert("invalid", { foo: true }));
+    await rejects(async () => db.insert("invalid", { foo: true }));
 
     expectTypeOf(db.get<"invalid">)
       .parameter(1)
@@ -282,7 +289,9 @@ await suite("Database", { concurrency: true }, async () => {
   });
 
   await test("special properties - string", async () => {
-    type Record = { str: string };
+    interface Record {
+      str: string;
+    }
     const db = await openDB("special-properties-string", 1, {
       special: {
         value: schema<Record>(),
@@ -301,7 +310,9 @@ await suite("Database", { concurrency: true }, async () => {
   });
 
   await test("special properties - array", async () => {
-    type Record = { arr: boolean[] };
+    interface Record {
+      arr: boolean[];
+    }
     const db = await openDB("special-properties-array", 1, {
       special: {
         value: schema<Record>(),
@@ -320,10 +331,10 @@ await suite("Database", { concurrency: true }, async () => {
   });
 
   await test("array key", async (t) => {
-    type Record = {
+    interface Record {
       coords: [x: number, y: number];
       name?: string;
-    };
+    }
     const db = await openDB("array-key", 1, {
       points: {
         value: schema<Record>(),
@@ -363,7 +374,7 @@ await suite("Database", { concurrency: true }, async () => {
     });
 
     await t.test("update throws if key changed", async () => {
-      await rejects(() =>
+      await rejects(async () =>
         db.update("points", [[1, 2]], (value) => ({
           coords: [value!.coords[0] + 1, value!.coords[1] + 1],
         })),
@@ -374,11 +385,11 @@ await suite("Database", { concurrency: true }, async () => {
   });
 
   await test("compound key", async (t) => {
-    type Record = {
+    interface Record {
       x: number;
       y: number;
       name?: string;
-    };
+    }
     const db = await openDB("compound-key", 1, {
       points: {
         value: schema<Record>(),
@@ -421,7 +432,7 @@ await suite("Database", { concurrency: true }, async () => {
     });
 
     await t.test("update throws if key changed", async () => {
-      await rejects(() =>
+      await rejects(async () =>
         db.update("points", [[1, 2]], (value) => ({
           x: value!.x + 1,
           y: value!.y + 1,
@@ -455,7 +466,7 @@ await suite("Database", { concurrency: true }, async () => {
 
     await t.test("insert invalid value throws SchemaValidationError", async () => {
       await rejects(
-        () => db.insert("users", { id: 2, name: "", age: 30 }),
+        async () => db.insert("users", { id: 2, name: "", age: 30 }),
         (err) => {
           ok(err instanceof SchemaValidationError, "error should be SchemaValidationError");
           ok(err.issues.length > 0, "error should have issues");
@@ -465,7 +476,7 @@ await suite("Database", { concurrency: true }, async () => {
     });
 
     await t.test("insert rolls back on validation failure", async () => {
-      await rejects(() =>
+      await rejects(async () =>
         db.insert("users", [
           { id: 10, name: "Valid", age: 25 },
           { id: 11, name: "", age: 25 },
@@ -481,13 +492,16 @@ await suite("Database", { concurrency: true }, async () => {
     });
 
     await t.test("upsert invalid value throws SchemaValidationError", async () => {
-      await rejects(() => db.upsert("users", { id: 1, name: "", age: 31 }), SchemaValidationError);
+      await rejects(
+        async () => db.upsert("users", { id: 1, name: "", age: 31 }),
+        SchemaValidationError,
+      );
       deepEqual(await db.get("users", 1), { id: 1, name: "Alice Updated", age: 31 });
     });
 
     await t.test("upsert with updater validates result", async () => {
       await rejects(
-        () =>
+        async () =>
           db.upsert("users", { id: 1, name: "Alice", age: 31 }, (old) => ({
             ...old,
             name: "",
@@ -500,7 +514,7 @@ await suite("Database", { concurrency: true }, async () => {
 
     await t.test("update invalid value throws SchemaValidationError", async () => {
       await rejects(
-        () => db.update("users", 1, (old) => ({ ...old!, name: "", age: -5 })),
+        async () => db.update("users", 1, (old) => ({ ...old!, name: "", age: -5 })),
         (err) => {
           ok(err instanceof SchemaValidationError, "error should be SchemaValidationError");
           ok(err.issues.length > 0, "error should have issues");
@@ -532,8 +546,14 @@ await suite("Database", { concurrency: true }, async () => {
 
   await test("InferInput vs InferOutput types with transform schema", async (t) => {
     // A schema where Input and Output are different types.
-    type UserInput = { id: number; rawName: string };
-    type UserOutput = { id: string; name: string };
+    interface UserInput {
+      id: number;
+      rawName: string;
+    }
+    interface UserOutput {
+      id: string;
+      name: string;
+    }
 
     const transformSchema: StandardSchemaV1<UserInput, UserOutput> = {
       "~standard": {
@@ -556,11 +576,11 @@ await suite("Database", { concurrency: true }, async () => {
     // insert and upsert accept InferInput
     expectTypeOf(db.insert<"users">)
       .parameter(1)
-      .toEqualTypeOf<Readonly<UserInput> | ReadonlyArray<Readonly<UserInput>>>();
+      .toEqualTypeOf<Readonly<UserInput> | readonly Readonly<UserInput>[]>();
 
     expectTypeOf(db.upsert<"users">)
       .parameter(1)
-      .toEqualTypeOf<Readonly<UserInput> | ReadonlyArray<Readonly<UserInput>>>();
+      .toEqualTypeOf<Readonly<UserInput> | readonly Readonly<UserInput>[]>();
 
     // get and getAll return InferOutput
     expectTypeOf(db.get<"users">).returns.resolves.toEqualTypeOf<
@@ -611,7 +631,7 @@ await suite("Database", { concurrency: true }, async () => {
 
     await t.test("update rejects if key of transformed value changed", async () => {
       await rejects(
-        () =>
+        async () =>
           db.update("users", "1", (oldValue) => ({
             id: Number(oldValue!.id satisfies string) + 1,
             rawName: oldValue!.name,
@@ -626,7 +646,7 @@ await suite("Database", { concurrency: true }, async () => {
 
     await t.test("upsert rejects if key of transformed value changed", async () => {
       await rejects(
-        () =>
+        async () =>
           db.upsert("users", { id: 1, rawName: "Bob" }, (oldValue, newValue) => ({
             id: Number(oldValue.id satisfies string) + 1,
             rawName: newValue.name,

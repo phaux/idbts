@@ -76,15 +76,15 @@ function toKeyRangeObject(
     maybeRange instanceof ArrayBuffer
   ) {
     return { lower: maybeRange, upper: maybeRange };
-  } else {
-    return maybeRange;
   }
+  return maybeRange;
 }
 
 /** Returns the maximum possible key value, which is greater than all other keys. */
 export const getMaxKey = (): [[]] => [[]]; // Not actually the largest possible but close enough.
 
 /** The minimum possible key value, which is less than all other keys. */
+// eslint-disable-next-line @typescript-eslint/no-inferrable-types -- needed for isolatedDeclarations
 export const minKey: number = -Infinity;
 
 /**
@@ -93,11 +93,10 @@ export const minKey: number = -Infinity;
  */
 export function isSingleValueRange(range: KeyRangeObject<IDBValidKey> | undefined): boolean {
   return (
-    range != null &&
-    range.lower != null &&
+    range?.lower != null &&
     range.upper != null &&
     indexedDB.cmp(range.lower, range.upper) === 0 &&
-    !range.lowerOpen &&
-    !range.upperOpen
+    !(range.lowerOpen ?? false) &&
+    !(range.upperOpen ?? false)
   );
 }

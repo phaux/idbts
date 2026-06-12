@@ -10,21 +10,21 @@ import { openDB } from "../src/openDB.ts";
 import { queryDB } from "../src/queryDB.ts";
 import { schema } from "../src/schema.ts";
 
-type QueryOptions<Where, OrderBy> = {
+interface QueryOptions<Where, OrderBy> {
   where?: Where | undefined;
   orderBy?: OrderBy | readonly OrderBy[] | undefined;
   limit?: number | undefined;
   direction?: "next" | "prev" | undefined;
-};
+}
 
 await suite("queryDB", { concurrency: true }, async () => {
-  type Person = {
+  interface Person {
     id: number;
     name: { first: string; last: string };
     age: number;
     points: number;
     level?: number;
-  };
+  }
 
   const dbSchema = {
     people: {
@@ -63,7 +63,7 @@ await suite("queryDB", { concurrency: true }, async () => {
     /* 12 */ { id: 25, name: { first: "Maciej", last: "Nowak" }, age: 35, points: 810 },
     /* 13 */ { id: 27, name: { first: "Paweł", last: "Sobczak" }, age: 27, points: 1100 },
     /* 14 */ { id: 29, name: { first: "Paweł", last: "Nowak" }, age: 38, points: 1210 },
-  ] as const satisfies ReadonlyArray<Person>;
+  ] as const satisfies readonly Person[];
 
   await db.insert("people", data);
 
@@ -134,7 +134,7 @@ await suite("queryDB", { concurrency: true }, async () => {
 
   await test("get all ordered with invalid order", async () => {
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "people", {
           orderBy: "age",
         }),
@@ -366,7 +366,7 @@ await suite("queryDB", { concurrency: true }, async () => {
 
   await test("get by invalid field equality", async () => {
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "people", {
           where: { level: 5 } as any,
         }),
@@ -376,7 +376,7 @@ await suite("queryDB", { concurrency: true }, async () => {
 
   await test("get by field equality with invalid order", async () => {
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "people", {
           where: { age: 30 },
           orderBy: "points",
@@ -387,7 +387,7 @@ await suite("queryDB", { concurrency: true }, async () => {
 
   await test("get by field equality with non-exact index", async () => {
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "people", {
           where: { age: 31 },
         }),
@@ -496,7 +496,7 @@ await suite("queryDB", { concurrency: true }, async () => {
 
   await test("get by invalid field range", async () => {
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "people", {
           where: { level: { lower: 3 } } as any,
         }),
@@ -515,7 +515,7 @@ await suite("queryDB", { concurrency: true }, async () => {
 
   await test("get by field range with invalid order", async () => {
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "people", {
           where: { age: { lower: 30, upper: 40 } },
           orderBy: "points",
@@ -583,7 +583,7 @@ await suite("queryDB", { concurrency: true }, async () => {
 
   await test("get by invalid multi field equality", async () => {
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "people", {
           where: {
             "name.first": "Maciej",
@@ -596,7 +596,7 @@ await suite("queryDB", { concurrency: true }, async () => {
 
   await test("get by multi field equality with non-exact index", async () => {
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "people", {
           where: {
             "name.first": "Maciej",
@@ -646,7 +646,7 @@ await suite("queryDB", { concurrency: true }, async () => {
 
   await test("get by multi field equality with invalid order", async () => {
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "people", {
           where: {
             "name.first": "Maciej",
@@ -790,7 +790,7 @@ await suite("queryDB", { concurrency: true }, async () => {
 
   await test("get by invalid field equality and range", async () => {
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "people", {
           where: {
             "name.last": "Nowak",
@@ -800,7 +800,7 @@ await suite("queryDB", { concurrency: true }, async () => {
       { message: "Missing index on name.last+level." },
     );
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "people", {
           where: {
             level: 1,
@@ -810,7 +810,7 @@ await suite("queryDB", { concurrency: true }, async () => {
       { message: "Missing index on level+age." },
     );
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "people", {
           where: {
             "name.last": "Nowak",
@@ -824,7 +824,7 @@ await suite("queryDB", { concurrency: true }, async () => {
 
   await test("get by invalid multi field equality and range", async () => {
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "people", {
           where: {
             "name.first": "Maciej",
@@ -1031,7 +1031,7 @@ await suite("queryDB", { concurrency: true }, async () => {
 
   await test("get by invalid multi field range", async () => {
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "people", {
           where: {
             "name.first": { upper: "P\uffff" },
@@ -1042,7 +1042,7 @@ await suite("queryDB", { concurrency: true }, async () => {
       { message: "Missing index on name.first+age." },
     );
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "people", {
           where: {
             "name.first": { lower: "D", upper: "P\uffff" },
@@ -1148,7 +1148,7 @@ await suite("queryDB", { concurrency: true }, async () => {
 
   await test("get by field range with invalid order by key", async () => {
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "people", {
           where: {
             "name.first": { lower: "D", upper: "P\uffff" },
@@ -1190,13 +1190,13 @@ await suite("queryDB", { concurrency: true }, async () => {
 });
 
 await suite("queryDB with compound key", { concurrency: true }, async () => {
-  type Point = {
+  interface Point {
     x: number;
     y: number;
     z: number;
     n?: string;
     t: string;
-  };
+  }
 
   const dbSchema = {
     points: {
@@ -1638,7 +1638,7 @@ await suite("queryDB with compound key", { concurrency: true }, async () => {
 
   await test("get by field equality with invalid order", async () => {
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "points", {
           where: {
             n: "center",
@@ -1648,7 +1648,7 @@ await suite("queryDB with compound key", { concurrency: true }, async () => {
       { message: "Missing index on n+t." },
     );
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "points", {
           where: {
             t: "line",
@@ -1658,7 +1658,7 @@ await suite("queryDB with compound key", { concurrency: true }, async () => {
       { message: "Missing index on t+y." },
     );
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "points", {
           where: {
             n: "center",
@@ -1676,11 +1676,11 @@ await suite("queryDB with compound key", { concurrency: true }, async () => {
 });
 
 await suite("queryDB with optional fields", { concurrency: true }, async () => {
-  type Item = {
+  interface Item {
     email: string;
     name?: string;
     age?: number;
-  };
+  }
 
   const dbSchema = {
     items: {
@@ -1735,14 +1735,14 @@ await suite("queryDB with optional fields", { concurrency: true }, async () => {
 
   await test("order by age", async () => {
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "items", {
           orderBy: "age",
         }),
       { message: "Missing index on age." },
     );
     await rejects(
-      () =>
+      async () =>
         queryDB(db, "items", {
           where: {
             age: { lower: 10, upper: 50 },
@@ -1754,11 +1754,11 @@ await suite("queryDB with optional fields", { concurrency: true }, async () => {
 });
 
 await suite("queryDB with multi entry index", { concurrency: true }, async () => {
-  type Post = {
+  interface Post {
     id: number;
     path: string[];
     tags: string[];
-  };
+  }
 
   const dbSchema = {
     posts: {
