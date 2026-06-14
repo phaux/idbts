@@ -4,7 +4,7 @@ import tseslint from "typescript-eslint";
 
 export default defineConfig([
   {
-    ignores: ["**/*.js", "**/*.d.ts"],
+    ignores: ["**/dist"],
   },
   js.configs.recommended,
   tseslint.configs.strictTypeChecked,
@@ -21,6 +21,7 @@ export default defineConfig([
       "@typescript-eslint/promise-function-async": "warn",
       "@typescript-eslint/require-await": "off",
       "@typescript-eslint/strict-boolean-expressions": "error",
+      curly: ["warn", "multi-line", "consistent"],
       eqeqeq: ["error", "smart"],
       "no-console": "error",
       "no-else-return": "warn",

@@ -1,6 +1,7 @@
 {
   "code_actions_on_format": {
-    "source.organizeImports": true
+    "source.organizeImports": true,
+    "source.fixAll.eslint": true
   },
   "tab_size": 2
 }

@@ -193,8 +193,9 @@ export class Database<const Schema extends AnyDatabaseSchema> {
           oldValue != null && updater != null
             ? await this.#validateValue(storeName, updater(oldValue, storedValue))
             : storedValue;
-        if (indexedDB.cmp(getKeyPathValue(newValue, store.keyPath!), key) !== 0)
+        if (indexedDB.cmp(getKeyPathValue(newValue, store.keyPath!), key) !== 0) {
           throw new DOMException("Updater cannot change the primary key.", "InvalidStateError");
+        }
         await idbReqToPromise(store.put(newValue));
         changes.push({ oldValue, newValue });
       }
@@ -238,8 +239,9 @@ export class Database<const Schema extends AnyDatabaseSchema> {
         const storedValue =
           newValue != null ? await this.#validateValue(storeName, newValue) : undefined;
         if (storedValue != null) {
-          if (indexedDB.cmp(getKeyPathValue(storedValue, store.keyPath!), key) !== 0)
+          if (indexedDB.cmp(getKeyPathValue(storedValue, store.keyPath!), key) !== 0) {
             throw new DOMException("Updater cannot change the primary key.", "InvalidStateError");
+          }
           await idbReqToPromise(store.put(storedValue));
         } else if (oldValue != null) {
           await idbReqToPromise(store.delete(key));

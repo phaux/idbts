@@ -85,8 +85,9 @@ function matchKeyToRanges(
         // This results in key value like `[...current, start, ...min]`.
         const nextKey = compositeKey.slice(0, keyIdx);
         nextKey.push(logicalRange.start!);
-        for (let i = keyIdx + 1; i < compositeKey.length; i++)
+        for (let i = keyIdx + 1; i < compositeKey.length; i++) {
           nextKey.push(reverse ? getMaxKey() : minKey);
+        }
         return { matches: false, nextKey };
       }
       if (order === -1) {
@@ -100,8 +101,9 @@ function matchKeyToRanges(
         // - max value for current and following components.
         // This results in key value like `[...current, ...max]`.
         const nextKey = compositeKey.slice(0, keyIdx);
-        for (let i = keyIdx; i < compositeKey.length; i++)
+        for (let i = keyIdx; i < compositeKey.length; i++) {
           nextKey.push(reverse ? minKey : getMaxKey());
+        }
         return { matches: false, nextKey };
       }
     }
