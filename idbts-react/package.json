@@ -2,6 +2,16 @@
   "name": "idbts-react",
   "version": "0.1.0",
   "description": "Typed IndexedDB wrapper for React",
+  "keywords": [
+    "database",
+    "indexeddb",
+    "react"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/phaux/idbts.git",
+    "directory": "idbts-react"
+  },
   "license": "MIT",
   "author": "phaux",
   "type": "module",
@@ -17,11 +27,11 @@
     "dist"
   ],
   "scripts": {
-    "prepare": "tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit",
     "clean": "rm -r dist",
     "format": "prettier --write .",
-    "check": "tsc --noEmit",
     "lint": "eslint .",
+    "prepare": "tsc -p tsconfig.build.json",
     "test": "node --test --experimental-default-config-file --experimental-test-coverage --test-timeout 5000"
   },
   "devDependencies": {
