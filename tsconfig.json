@@ -1,13 +1,14 @@
 {
   "compilerOptions": {
+    "allowJs": true,
     "allowImportingTsExtensions": true,
+    "checkJs": true,
     "customConditions": ["idbts/source"],
     "declaration": true,
     "declarationMap": true,
     "erasableSyntaxOnly": true,
     "exactOptionalPropertyTypes": true,
     "isolatedModules": true,
-    "isolatedDeclarations": true,
     "lib": ["ESNext", "DOM"],
     "module": "nodenext",
     "noEmit": true,
