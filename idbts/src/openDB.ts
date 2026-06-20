@@ -14,7 +14,7 @@ export interface OpenDBOptions {
    * are performed automatically just before this callback is invoked.
    * You can use this callback to specify additional migration logic.
    *
-   * The open DB promise settles after this callback is invoked
+   * The openDB promise settles after this callback is invoked
    * and all pending transaction operations are finished.
    *
    * @see {@link IDBOpenDBRequest.onupgradeneeded}
@@ -25,9 +25,9 @@ export interface OpenDBOptions {
    * Fired on the request when an attempt was made to open this database with a higher version number,
    * but an already open connection to the same database is blocking the upgrade transaction.
    *
-   * You can use this callback to ask the user to close app's other browser tabs.
+   * You can use this callback to ask the user to close other browser tabs of the app.
    *
-   * The open DB promise will not resolve as long as the database is blocked.
+   * The openDB promise will not resolve as long as the database is blocked.
    *
    * @see {@link IDBOpenDBRequest.onblocked}
    */
@@ -44,7 +44,7 @@ export interface OpenDBOptions {
    * you can use this event to close and reopen the database in the background
    * without loading the new app code yet.
    *
-   * The open DB promise is already resolved when this event is fired.
+   * The openDB promise is already resolved when this event is fired.
    *
    * @see {@link IDBDatabase.onversionchange}
    */
@@ -68,11 +68,12 @@ export interface OpenDBOptions {
  *
  * ```ts
  * const db = await openDB("my-db", 1, {
- *   users: {
- *     value: schema<UserEntry>(),
- *     keyPath: "id",
- *     indexes: {
- *       byName: { keyPath: "name" },
+ *   posts: {
+ *     itemSchema: schema<PostEntry>(),
+ *     primaryKeyPath: "id",
+ *     indexedKeyPaths: {
+ *       authorId: {},
+ *       datePublished: { sortable: true },
  *     },
  *   },
  * });
@@ -101,29 +102,48 @@ export async function openDB<const T extends AnyDatabaseSchema>(
       try {
         const db = request.result;
         const tx = request.transaction!;
+        const wantedStoreNames = new Set<string>();
         // Create new stores.
         for (const [storeName, storeSchema] of Object.entries(schema)) {
+          wantedStoreNames.add(storeName);
+          const { primaryKeyPath, indexedKeyPaths = {} } = storeSchema;
           const store = tx.objectStoreNames.contains(storeName)
             ? tx.objectStore(storeName)
-            : db.createObjectStore(storeName, storeSchema as IDBObjectStoreParameters);
+            : db.createObjectStore(storeName, { keyPath: primaryKeyPath });
           // Create new indexes.
-          const indexSchemas = storeSchema.indexes ?? {};
-          for (const [name, indexSchema] of Object.entries(indexSchemas)) {
-            const { keyPath, ...params } = indexSchema;
-            if (!store.indexNames.contains(name)) {
-              store.createIndex(name, keyPath as string | string[], params as IDBIndexParameters);
+          const wantedIndexNames = new Set<string>();
+          const sortableKeyPaths = Object.fromEntries(
+            Object.entries(indexedKeyPaths).filter(([, keySchema]) => keySchema.sortable ?? false),
+          );
+          for (const [keyPath, keySchema] of Object.entries(indexedKeyPaths)) {
+            const { multiEntry = false, unique = false } = keySchema;
+            wantedIndexNames.add(keyPath);
+            if (!store.indexNames.contains(keyPath)) {
+              store.createIndex(keyPath, keyPath, { multiEntry, unique });
+            }
+            // Create composite indexes for combinations of this key path with every sortable key path.
+            // Multi entry indexes can't be composite (IndexedDB limitation).
+            if (!multiEntry) {
+              for (const sortedKeyPath of Object.keys(sortableKeyPaths)) {
+                if (sortedKeyPath === keyPath) continue;
+                const indexName = `${keyPath}+${sortedKeyPath}`;
+                wantedIndexNames.add(indexName);
+                if (!store.indexNames.contains(indexName)) {
+                  store.createIndex(indexName, [keyPath, sortedKeyPath]);
+                }
+              }
             }
           }
           // Delete old indexes.
           for (const indexName of Array.from(store.indexNames)) {
-            if (!Object.hasOwn(indexSchemas, indexName)) {
+            if (!wantedIndexNames.has(indexName)) {
               store.deleteIndex(indexName);
             }
           }
         }
         // Delete old stores.
         for (const storeName of Array.from(tx.objectStoreNames)) {
-          if (!Object.hasOwn(schema, storeName)) {
+          if (!wantedStoreNames.has(storeName)) {
             db.deleteObjectStore(storeName);
           }
         }

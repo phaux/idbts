@@ -39,7 +39,21 @@ export function liveQueryDB<
   options: QueryOptions<Schema[StoreName]>,
 ): MiniObservable<StoreValue<Schema[StoreName]>[]> {
   return new MiniObservable((subscriber) => {
-    const { where = {}, orderBy = [], direction, limit = Infinity } = options;
+    const {
+      where = {},
+      orderBy,
+      lower,
+      upper,
+      lowerOpen,
+      upperOpen,
+      reverse = false,
+      limit = Infinity,
+    } = options;
+
+    if (orderBy != null && (lower != null || upper != null)) {
+      const orderRange = toKeyRange({ lower, lowerOpen, upper, upperOpen });
+      (where as Record<string, IDBKeyRange | undefined>)[orderBy] ??= orderRange;
+    }
 
     // Bail out immediately if the subscriber was already cancelled.
     if (subscriber.signal?.aborted ?? false) return;
@@ -100,9 +114,7 @@ export function liveQueryDB<
       .transaction(storeName, "readonly")
       .objectStore(storeName).keyPath!;
 
-    const orderFields = (Array.isArray as (v: unknown) => v is readonly unknown[])(orderBy)
-      ? orderBy
-      : [orderBy];
+    const orderFields = orderBy != null ? [orderBy] : [];
 
     // Initial query.
     queryDB(db, storeName, options).then(
@@ -192,7 +204,7 @@ export function liveQueryDB<
                   const bValue = getFieldValue(b, field);
                   let order = indexedDB.cmp(aValue, bValue);
                   if (order !== 0) {
-                    if (direction === "prev") order = -order;
+                    if (reverse) order = -order;
                     return order;
                   }
                 }
@@ -200,7 +212,7 @@ export function liveQueryDB<
                 const aKey = getKeyPathValue(a, primaryKeyPath);
                 const bKey = getKeyPathValue(b, primaryKeyPath);
                 let order = indexedDB.cmp(aKey, bKey);
-                if (direction === "prev") order = -order;
+                if (reverse) order = -order;
                 return order;
               })
               .slice(0, limit);

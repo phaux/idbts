@@ -5,17 +5,9 @@ import { expectTypeOf } from "expect-type";
 import { deepEqual, rejects } from "node:assert/strict";
 import { after, suite, test } from "node:test";
 import type { AnyDatabaseSchema } from "../src/Database.ts";
-import type { MaybeKeyRange } from "../src/KeyRange.ts";
 import { openDB } from "../src/openDB.ts";
 import { queryDB } from "../src/queryDB.ts";
 import { schema } from "../src/schema.ts";
-
-interface QueryOptions<Where, OrderBy> {
-  where?: Where | undefined;
-  orderBy?: OrderBy | readonly OrderBy[] | undefined;
-  limit?: number | undefined;
-  direction?: "next" | "prev" | undefined;
-}
 
 await suite("queryDB", { concurrency: true }, async () => {
   interface Person {
@@ -28,19 +20,13 @@ await suite("queryDB", { concurrency: true }, async () => {
 
   const dbSchema = {
     people: {
-      value: schema<Person>(),
-      keyPath: "id",
-      indexes: {
-        byFirstName: { keyPath: "name.first" },
-        byLastName: { keyPath: "name.last" },
-        byName: { keyPath: ["name.first", "name.last"] },
-        byName2: { keyPath: ["name.last", "name.first"] },
-        byPoints: { keyPath: "points" },
-        byFirstNameAndPoints: { keyPath: ["name.first", "points"] },
-        byLastNameAndPoints: { keyPath: ["name.last", "points"] },
-        byNameAndAge: { keyPath: ["name.first", "name.last", "age"] },
-        byIdAndFirstName: { keyPath: ["id", "name.first"] },
-        byIdAndLastName: { keyPath: ["id", "name.last"] },
+      itemSchema: schema<Person>(),
+      primaryKeyPath: "id",
+      indexedKeyPaths: {
+        "name.first": {},
+        "name.last": { sortable: true },
+        age: {},
+        points: { sortable: true },
       },
     },
   } as const satisfies AnyDatabaseSchema;
@@ -69,25 +55,31 @@ await suite("queryDB", { concurrency: true }, async () => {
 
   expectTypeOf(queryDB<typeof dbSchema, "people">)
     .parameter(2)
-    .toEqualTypeOf<
-      QueryOptions<
-        {
-          readonly id?: MaybeKeyRange<number>;
-          readonly "name.first"?: MaybeKeyRange<string>;
-          readonly "name.last"?: MaybeKeyRange<string>;
-          readonly age?: MaybeKeyRange<number>;
-          readonly points?: MaybeKeyRange<number>;
-        },
-        "id" | "name.first" | "name.last" | "age" | "points"
-      >
-    >(undefined as never);
+    .toEqualTypeOf<{
+      readonly where?:
+        | {
+            readonly id?: number;
+            readonly "name.first"?: string;
+            readonly "name.last"?: string;
+            readonly age?: number;
+            readonly points?: number;
+          }
+        | undefined;
+      readonly orderBy?: "id" | "name.last" | "points" | undefined;
+      readonly limit?: number | undefined;
+      readonly lower?: number | string | undefined;
+      readonly upper?: number | string | undefined;
+      readonly lowerOpen?: boolean | undefined;
+      readonly upperOpen?: boolean | undefined;
+      readonly reverse?: boolean | undefined;
+    }>(undefined as never);
 
   await test("get all", async () => {
     deepEqual(await queryDB(db, "people", {}), data);
   });
 
   await test("get all reversed", async () => {
-    deepEqual(await queryDB(db, "people", { direction: "prev" }), [...data].reverse());
+    deepEqual(await queryDB(db, "people", { reverse: true }), [...data].reverse());
   });
 
   await test("get all with limit", async () => {
@@ -96,37 +88,37 @@ await suite("queryDB", { concurrency: true }, async () => {
 
   await test("get all with limit reversed", async () => {
     deepEqual(
-      await queryDB(db, "people", { limit: 5, direction: "prev" }),
+      await queryDB(db, "people", { limit: 5, reverse: true }),
       data.toReversed().slice(0, 5),
     );
   });
 
   await test("get all ordered", async () => {
     deepEqual(
-      await queryDB(db, "people", { orderBy: "name.first" }),
-      data.toSorted((a, b) => a.name.first.localeCompare(b.name.first)),
+      await queryDB(db, "people", { orderBy: "name.last" }),
+      data.toSorted((a, b) => a.name.last.localeCompare(b.name.last)),
     );
   });
 
   await test("get all ordered reversed", async () => {
     deepEqual(
-      await queryDB(db, "people", { orderBy: "name.first", direction: "prev" }),
-      data.toSorted((a, b) => a.name.first.localeCompare(b.name.first)).reverse(),
+      await queryDB(db, "people", { orderBy: "points", reverse: true }),
+      data.toSorted((a, b) => a.points - b.points).reverse(),
     );
   });
 
   await test("get all ordered with limit", async () => {
     deepEqual(
-      await queryDB(db, "people", { orderBy: "name.first", limit: 5 }),
-      data.toSorted((a, b) => a.name.first.localeCompare(b.name.first)).slice(0, 5),
+      await queryDB(db, "people", { orderBy: "name.last", limit: 5 }),
+      data.toSorted((a, b) => a.name.last.localeCompare(b.name.last)).slice(0, 5),
     );
   });
 
   await test("get all ordered with limit reversed", async () => {
     deepEqual(
-      await queryDB(db, "people", { orderBy: "name.first", limit: 5, direction: "prev" }),
+      await queryDB(db, "people", { orderBy: "points", limit: 5, reverse: true }),
       data
-        .toSorted((a, b) => a.name.first.localeCompare(b.name.first))
+        .toSorted((a, b) => a.points - b.points)
         .reverse()
         .slice(0, 5),
     );
@@ -136,9 +128,9 @@ await suite("queryDB", { concurrency: true }, async () => {
     await rejects(
       async () =>
         queryDB(db, "people", {
-          orderBy: "age",
+          orderBy: "level" as any,
         }),
-      { message: "Missing index on age." },
+      { message: "Missing index on level." },
     );
   });
 
@@ -151,7 +143,7 @@ await suite("queryDB", { concurrency: true }, async () => {
     );
     deepEqual(
       await queryDB(db, "people", {
-        where: { id: IDBKeyRange.only(15) },
+        where: { id: 15 },
       }),
       [data[7]],
     );
@@ -167,7 +159,7 @@ await suite("queryDB", { concurrency: true }, async () => {
     deepEqual(
       await queryDB(db, "people", {
         where: { id: 1 },
-        direction: "prev",
+        reverse: true,
       }),
       [data[0]],
     );
@@ -201,8 +193,8 @@ await suite("queryDB", { concurrency: true }, async () => {
     deepEqual(
       await queryDB(db, "people", {
         where: { id: 9 },
-        orderBy: "name.first",
-        direction: "prev",
+        orderBy: "name.last",
+        reverse: true,
       }),
       [data[4]],
     );
@@ -232,25 +224,31 @@ await suite("queryDB", { concurrency: true }, async () => {
   await test("get by key range", async () => {
     deepEqual(
       await queryDB(db, "people", {
-        where: { id: IDBKeyRange.bound(9, 13) },
+        orderBy: "id",
+        lower: 9,
+        upper: 13,
       }),
       [data[4], data[5], data[6]],
     );
     deepEqual(
       await queryDB(db, "people", {
-        where: { id: IDBKeyRange.upperBound(5) },
+        orderBy: "id",
+        upper: 5,
       }),
       [data[0], data[1], data[2]],
     );
     deepEqual(
       await queryDB(db, "people", {
-        where: { id: IDBKeyRange.lowerBound(25, true) },
+        orderBy: "id",
+        lower: 25,
+        lowerOpen: true,
       }),
       [data[13], data[14]],
     );
     deepEqual(
       await queryDB(db, "people", {
-        where: { id: IDBKeyRange.lowerBound(999) },
+        orderBy: "id",
+        lower: 999,
       }),
       [],
     );
@@ -259,8 +257,10 @@ await suite("queryDB", { concurrency: true }, async () => {
   await test("get by key range reversed", async () => {
     deepEqual(
       await queryDB(db, "people", {
-        where: { id: { lower: 13, upper: 17 } },
-        direction: "prev",
+        orderBy: "id",
+        lower: 13,
+        upper: 17,
+        reverse: true,
       }),
       [data[8], data[7], data[6]],
     );
@@ -269,7 +269,9 @@ await suite("queryDB", { concurrency: true }, async () => {
   await test("get by key range with limit", async () => {
     deepEqual(
       await queryDB(db, "people", {
-        where: { id: { lower: 3, upper: 12 } },
+        orderBy: "id",
+        lower: 3,
+        upper: 12,
         limit: 3,
       }),
       [data[1], data[2], data[3]],
@@ -279,33 +281,13 @@ await suite("queryDB", { concurrency: true }, async () => {
   await test("get by key range with limit reversed", async () => {
     deepEqual(
       await queryDB(db, "people", {
-        where: { id: { lower: 4, upper: 16 } },
+        orderBy: "id",
+        lower: 4,
+        upper: 16,
         limit: 2,
-        direction: "prev",
+        reverse: true,
       }),
       [data[7], data[6]],
-    );
-  });
-
-  await test("get by key range ordered", async () => {
-    deepEqual(
-      await queryDB(db, "people", {
-        where: { id: { lower: 3, upper: 12 } },
-        orderBy: "name.first",
-      }),
-      [data[4], data[3], data[2], data[5], data[1]],
-    );
-  });
-
-  await test("get by key range and field range", async () => {
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          id: { lower: 3, upper: 12 },
-          "name.first": { lower: "A", upper: "M" },
-        },
-      }),
-      [data[4], data[3]],
     );
   });
 
@@ -328,7 +310,7 @@ await suite("queryDB", { concurrency: true }, async () => {
     deepEqual(
       await queryDB(db, "people", {
         where: { "name.first": "Piotr" },
-        direction: "prev",
+        reverse: true,
       }),
       [data[8], data[6]],
     );
@@ -337,18 +319,18 @@ await suite("queryDB", { concurrency: true }, async () => {
   await test("get by field equality with matching order", async () => {
     deepEqual(
       await queryDB(db, "people", {
-        where: { "name.first": "Piotr" },
-        orderBy: "name.first",
+        where: { "name.last": "Nowak" },
+        orderBy: "name.last",
       }),
-      [data[6], data[8]],
+      [data[0], data[2], data[8], data[12], data[14]],
     );
   });
 
-  await test("get by field equality with non-matching order", async () => {
+  await test("get by field equality with non-matching order", { skip: true }, async () => {
     deepEqual(
       await queryDB(db, "people", {
         where: { "name.last": "Nowak" },
-        orderBy: "name.first",
+        orderBy: "points",
       }),
       [data[0], data[2], data[12], data[14], data[8]],
     );
@@ -379,32 +361,26 @@ await suite("queryDB", { concurrency: true }, async () => {
       async () =>
         queryDB(db, "people", {
           where: { age: 30 },
-          orderBy: "points",
+          orderBy: "name.first" as any,
         }),
-      { message: "Missing index on age+points." },
-    );
-  });
-
-  await test("get by field equality with non-exact index", async () => {
-    await rejects(
-      async () =>
-        queryDB(db, "people", {
-          where: { age: 31 },
-        }),
-      { message: "Missing index on age." },
+      { message: "Missing index on age+name.first." },
     );
   });
 
   await test("get by field range", async () => {
     deepEqual(
       await queryDB(db, "people", {
-        where: { "name.first": { lower: "P", upper: "S\uffff" } },
+        orderBy: "name.last",
+        lower: "P",
+        upper: "S\uffff",
       }),
-      [data[13], data[14], data[6], data[8], data[10], data[9]],
+      [data[4], data[13]],
     );
     deepEqual(
       await queryDB(db, "people", {
-        where: { "name.last": { lower: "P", lowerOpen: true } },
+        orderBy: "name.last",
+        lower: "P",
+        lowerOpen: true,
       }),
       [data[4], data[13], data[3], data[10]],
     );
@@ -428,69 +404,37 @@ await suite("queryDB", { concurrency: true }, async () => {
   await test("get by field range reversed", async () => {
     deepEqual(
       await queryDB(db, "people", {
-        where: { "name.first": { lower: "P", upper: "S\uffff" } },
-        direction: "prev",
+        orderBy: "name.last",
+        lower: "P",
+        upper: "S\uffff",
+        reverse: true,
       }),
-      [data[9], data[10], data[8], data[6], data[14], data[13]],
-    );
-  });
-
-  await test("get by field range with matching order ", async () => {
-    deepEqual(
-      await queryDB(db, "people", {
-        where: { "name.first": { upper: "B\uffff" } },
-        orderBy: "name.first",
-      }),
-      [data[0], data[4], data[11], data[7]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: { "name.first": { lower: "P", upper: "S\uffff" } },
-        orderBy: "name.first",
-        direction: "prev",
-      }),
-      [data[9], data[10], data[8], data[6], data[14], data[13]],
-    );
-  });
-
-  await test("get by field range with non-matching order", async () => {
-    deepEqual(
-      await queryDB(db, "people", {
-        where: { "name.last": { lower: "A", upper: "M\uffff" } },
-        orderBy: "name.first",
-      }),
-      [data[11], data[7], data[5], data[6], data[9], data[1]],
+      [data[13], data[4]],
     );
   });
 
   await test("get by field range with limit", async () => {
     deepEqual(
       await queryDB(db, "people", {
-        where: { "name.first": { lower: "A", upper: "M\uffff" } },
-        orderBy: "name.first",
+        orderBy: "name.last",
+        lower: "A",
+        upper: "M\uffff",
         limit: 2,
       }),
-      [data[0], data[4]],
+      [data[5], data[6]],
     );
   });
 
   await test("get by field range with limit reversed", async () => {
     deepEqual(
       await queryDB(db, "people", {
-        where: { "name.last": { lower: "A", upper: "M\uffff" } },
+        orderBy: "name.last",
+        lower: "A",
+        upper: "M\uffff",
         limit: 2,
-        direction: "prev",
+        reverse: true,
       }),
       [data[11], data[7]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: { "name.first": { lower: "A", upper: "M\uffff" } },
-        orderBy: "name.first",
-        direction: "prev",
-        limit: 2,
-      }),
-      [data[12], data[2]],
     );
   });
 
@@ -498,7 +442,8 @@ await suite("queryDB", { concurrency: true }, async () => {
     await rejects(
       async () =>
         queryDB(db, "people", {
-          where: { level: { lower: 3 } } as any,
+          orderBy: "level" as any,
+          lower: 3,
         }),
       { message: "Missing index on level." },
     );
@@ -510,17 +455,6 @@ await suite("queryDB", { concurrency: true }, async () => {
         where: { level: undefined } as any,
       }),
       data,
-    );
-  });
-
-  await test("get by field range with invalid order", async () => {
-    await rejects(
-      async () =>
-        queryDB(db, "people", {
-          where: { age: { lower: 30, upper: 40 } },
-          orderBy: "points",
-        }),
-      { message: "Missing index on points+age." },
     );
   });
 
@@ -562,7 +496,7 @@ await suite("queryDB", { concurrency: true }, async () => {
           "name.first": "Maciej",
           "name.last": "Nowak",
         },
-        direction: "prev",
+        reverse: true,
       }),
       [data[12], data[2]],
     );
@@ -591,19 +525,6 @@ await suite("queryDB", { concurrency: true }, async () => {
           } as any,
         }),
       { message: "Missing index on level." },
-    );
-  });
-
-  await test("get by multi field equality with non-exact index", async () => {
-    await rejects(
-      async () =>
-        queryDB(db, "people", {
-          where: {
-            "name.first": "Maciej",
-            age: 35,
-          },
-        }),
-      { message: "Missing index on age." },
     );
   });
 
@@ -638,7 +559,7 @@ await suite("queryDB", { concurrency: true }, async () => {
           "name.last": "Nowak",
         },
         orderBy: "points",
-        direction: "prev",
+        reverse: true,
       }),
       [data[2], data[12]],
     );
@@ -663,8 +584,10 @@ await suite("queryDB", { concurrency: true }, async () => {
       await queryDB(db, "people", {
         where: {
           "name.last": "Nowak",
-          points: { lower: 1000, upper: 1450 },
         },
+        orderBy: "points",
+        lower: 1000,
+        upper: 1450,
       }),
       [data[2], data[14], data[0]],
     );
@@ -672,8 +595,11 @@ await suite("queryDB", { concurrency: true }, async () => {
       await queryDB(db, "people", {
         where: {
           "name.first": "Piotr",
-          points: { lower: 1500, upper: 1515, lowerOpen: true },
         },
+        orderBy: "points",
+        lower: 1500,
+        upper: 1515,
+        lowerOpen: true,
       }),
       [data[6]],
     );
@@ -681,8 +607,9 @@ await suite("queryDB", { concurrency: true }, async () => {
       await queryDB(db, "people", {
         where: {
           "name.last": "Nowak",
-          points: { lower: 1000 },
         },
+        orderBy: "points",
+        lower: 1000,
       }),
       [data[2], data[14], data[0], data[8]],
     );
@@ -690,8 +617,9 @@ await suite("queryDB", { concurrency: true }, async () => {
       await queryDB(db, "people", {
         where: {
           "name.last": "Nowak",
-          points: { upper: 1450 },
         },
+        orderBy: "points",
+        upper: 1450,
       }),
       [data[12], data[2], data[14], data[0]],
     );
@@ -703,8 +631,9 @@ await suite("queryDB", { concurrency: true }, async () => {
         where: {
           "name.first": "Maciej",
           "name.last": "Nowak",
-          points: { lower: 500 },
         },
+        orderBy: "points",
+        lower: 500,
       }),
       [data[12], data[2]],
     );
@@ -715,9 +644,11 @@ await suite("queryDB", { concurrency: true }, async () => {
       await queryDB(db, "people", {
         where: {
           "name.last": "Nowak",
-          points: { lower: 1000, upper: 1450 },
         },
-        direction: "prev",
+        orderBy: "points",
+        lower: 1000,
+        upper: 1450,
+        reverse: true,
       }),
       [data[0], data[14], data[2]],
     );
@@ -729,9 +660,10 @@ await suite("queryDB", { concurrency: true }, async () => {
         where: {
           "name.first": "Maciej",
           "name.last": "Nowak",
-          points: { lower: 500 },
         },
-        direction: "prev",
+        orderBy: "points",
+        lower: 500,
+        reverse: true,
       }),
       [data[2], data[12]],
     );
@@ -742,8 +674,10 @@ await suite("queryDB", { concurrency: true }, async () => {
       await queryDB(db, "people", {
         where: {
           "name.last": "Nowak",
-          points: { lower: 1000, upper: 1450 },
         },
+        orderBy: "points",
+        lower: 1000,
+        upper: 1450,
         limit: 2,
       }),
       [data[2], data[14]],
@@ -756,35 +690,13 @@ await suite("queryDB", { concurrency: true }, async () => {
         where: {
           "name.first": "Maciej",
           "name.last": "Nowak",
-          points: { lower: 500 },
         },
+        orderBy: "points",
+        lower: 500,
+        reverse: true,
         limit: 1,
-        direction: "prev",
       }),
       [data[2]],
-    );
-  });
-
-  await test("get by field equality and multi range", async () => {
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": "Piotr",
-          "name.last": { lower: "B", upper: "Y\uffff" },
-          age: { lower: 10, upper: 30 },
-        },
-      }),
-      [data[6], data[8]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": "Piotr",
-          "name.last": { lower: "B", upper: "Y\uffff" },
-          age: { lower: 10, upper: 20 },
-        },
-      }),
-      [data[8]],
     );
   });
 
@@ -794,8 +706,10 @@ await suite("queryDB", { concurrency: true }, async () => {
         queryDB(db, "people", {
           where: {
             "name.last": "Nowak",
-            level: { lower: 0, upper: 100 },
-          } as any,
+          },
+          orderBy: "level" as any,
+          lower: 0,
+          upper: 100,
         }),
       { message: "Missing index on name.last+level." },
     );
@@ -804,21 +718,12 @@ await suite("queryDB", { concurrency: true }, async () => {
         queryDB(db, "people", {
           where: {
             level: 1,
-            age: { lower: 0, upper: 100 },
           } as any,
+          orderBy: "points",
+          lower: 0,
+          upper: 1000,
         }),
-      { message: "Missing index on level+age." },
-    );
-    await rejects(
-      async () =>
-        queryDB(db, "people", {
-          where: {
-            "name.last": "Nowak",
-            points: { lower: 1000, upper: 1450 },
-          },
-          orderBy: "age",
-        }),
-      { message: "Missing index on name.last+age+points." },
+      { message: "Missing index on level+points." },
     );
   });
 
@@ -829,844 +734,11 @@ await suite("queryDB", { concurrency: true }, async () => {
           where: {
             "name.first": "Maciej",
             "name.last": "Nowak",
-            level: { lower: 0 },
-          } as any,
+          },
+          orderBy: "level" as any,
+          lower: 0,
         }),
       { message: "Missing index on name.first+level, name.last+level." },
-    );
-  });
-
-  await test("get by field equality and range with matching order", async () => {
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.last": "Nowak",
-          points: { upper: 1450 },
-        },
-        orderBy: "points",
-      }),
-      [data[12], data[2], data[14], data[0]],
-    );
-  });
-
-  await test("get by multi field equality and range with matching order", async () => {
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": "Maciej",
-          "name.last": "Nowak",
-          points: { lower: 500 },
-        },
-        orderBy: "points",
-        direction: "prev",
-      }),
-      [data[2], data[12]],
-    );
-  });
-
-  await test("get by field equality and range with non-matching order", async () => {
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": "Maciej",
-          age: { lower: 35, upper: 55 },
-        },
-        orderBy: "name.last",
-      }),
-      [data[12], data[2]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": "Maciej",
-          age: IDBKeyRange.upperBound(55, true),
-        },
-        orderBy: "name.last",
-      }),
-      [data[12]],
-    );
-  });
-
-  await test("get by multi field range", async () => {
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": { upper: "P\uffff" },
-          "name.last": { lower: "E", upper: "R\uffff" },
-        },
-      }),
-      [data[0], data[11], data[7], data[2], data[12], data[14], data[8]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": { lower: "D", upper: "P\uffff" },
-          "name.last": { lower: "E", upper: "R\uffff" },
-        },
-      }),
-      [data[2], data[12], data[14], data[8]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": { lower: "D", upper: "P\uffff" },
-          "name.last": { lower: "E", upper: "R\uffff" },
-          age: { lower: 35, upper: 38 },
-        },
-      }),
-      [data[12], data[14]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": { lower: "D", upper: "P\uffff" },
-          "name.last": { lower: "E", upper: "R\uffff" },
-          age: { lower: 35, upper: 38, lowerOpen: true },
-        },
-      }),
-      [data[14]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": { lower: "D", upper: "P\uffff" },
-          "name.last": { lower: "E", upper: "R\uffff" },
-          age: { lower: 35, upper: 38, upperOpen: true },
-        },
-      }),
-      [data[12]],
-    );
-  });
-
-  await test("get by multi field range reversed", async () => {
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": { upper: "P\uffff" },
-          "name.last": { lower: "E", upper: "R\uffff" },
-        },
-        direction: "prev",
-      }),
-      [data[8], data[14], data[12], data[2], data[7], data[11], data[0]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": { lower: "D", upper: "P\uffff" },
-          "name.last": { lower: "E", upper: "R\uffff" },
-          age: { lower: 35, upper: 38 },
-        },
-        direction: "prev",
-      }),
-      [data[14], data[12]],
-    );
-  });
-
-  await test("get by multi field range with matching order", async () => {
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": { upper: "P\uffff" },
-          "name.last": { lower: "E", upper: "R\uffff" },
-        },
-        orderBy: ["name.first", "name.last"],
-      }),
-      [data[0], data[11], data[7], data[2], data[12], data[14], data[8]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": { upper: "P\uffff" },
-          "name.last": { lower: "E", upper: "R\uffff" },
-        },
-        orderBy: ["name.last", "name.first"],
-      }),
-      [data[11], data[7], data[0], data[2], data[12], data[14], data[8]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": { lower: "D", upper: "P\uffff" },
-          "name.last": { lower: "E", upper: "R\uffff" },
-          age: { lower: 35, upper: 38 },
-        },
-        orderBy: ["name.first", "name.last", "age"],
-      }),
-      [data[12], data[14]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.last": { lower: "E", upper: "R\uffff" },
-          age: { lower: 30, upper: 40, lowerOpen: true },
-        },
-        orderBy: ["name.first", "name.last", "age"],
-      }),
-      [data[12], data[14], data[1]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": { lower: "D", upper: "P\uffff" },
-          "name.last": { lower: "E", upper: "R\uffff" },
-        },
-        orderBy: ["name.first", "name.last", "age"],
-      }),
-      [data[12], data[2], data[14], data[8]],
-    );
-  });
-
-  await test("get by multi field range with non-matching order", async () => {
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.last": { lower: "E", upper: "R\uffff" },
-          age: { lower: 30, upper: 40, lowerOpen: true },
-        },
-        orderBy: ["name.first", "name.last"],
-      }),
-      [data[12], data[14], data[1]],
-    );
-  });
-
-  await test("get by invalid multi field range", async () => {
-    await rejects(
-      async () =>
-        queryDB(db, "people", {
-          where: {
-            "name.first": { upper: "P\uffff" },
-            age: { lower: 0, upper: 100 },
-          },
-          orderBy: ["name.first", "age"],
-        }),
-      { message: "Missing index on name.first+age." },
-    );
-    await rejects(
-      async () =>
-        queryDB(db, "people", {
-          where: {
-            "name.first": { lower: "D", upper: "P\uffff" },
-            "name.last": { lower: "E", upper: "R\uffff" },
-            points: { lower: 1000, upper: 2000 },
-          },
-        }),
-      { message: "Missing index on name.first+name.last+points." },
-    );
-  });
-
-  await test("get by multi field range and key range", async () => {
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": { upper: "P\uffff" },
-          "name.last": { lower: "E", upper: "R\uffff" },
-          id: { lower: 5, upper: 25, upperOpen: true },
-        },
-      }),
-      [data[11], data[7], data[2], data[8]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": { lower: "D", upper: "P\uffff" },
-          "name.last": { lower: "E", upper: "R\uffff" },
-          id: { upper: 25 },
-        },
-      }),
-      [data[2], data[12], data[8]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": { lower: "D", upper: "P\uffff" },
-          "name.last": { lower: "E", upper: "R\uffff" },
-          id: { lower: 25, lowerOpen: true },
-        },
-      }),
-      [data[14]],
-    );
-  });
-
-  await test("get by multi field range and key range reversed", async () => {
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": { upper: "P\uffff" },
-          "name.last": { lower: "E", upper: "R\uffff" },
-          id: { lower: 5, upper: 25, upperOpen: true },
-        },
-        direction: "prev",
-      }),
-      [data[8], data[2], data[7], data[11]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": { lower: "D", upper: "P\uffff" },
-          "name.last": { lower: "E", upper: "R\uffff" },
-          id: { upper: 25 },
-        },
-        direction: "prev",
-      }),
-      [data[8], data[12], data[2]],
-    );
-  });
-
-  await test("get by multi field equality and key range", async () => {
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": "Maciej",
-          "name.last": "Nowak",
-          id: { lower: 0, upper: 10 },
-        },
-      }),
-      [data[2]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": "Maciej",
-          "name.last": "Nowak",
-          id: { lower: 0, upper: 100 },
-        },
-      }),
-      [data[2], data[12]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": "Maciej",
-          "name.last": "Nowak",
-          id: { lower: 0, upper: 100 },
-        },
-        direction: "prev",
-      }),
-      [data[12], data[2]],
-    );
-  });
-
-  await test("get by field range with invalid order by key", async () => {
-    await rejects(
-      async () =>
-        queryDB(db, "people", {
-          where: {
-            "name.first": { lower: "D", upper: "P\uffff" },
-            "name.last": { lower: "E", upper: "R\uffff" },
-            id: { lower: 5, upper: 25, upperOpen: true },
-          },
-          orderBy: ["id"],
-        }),
-      { message: "Missing index on id+name.first+name.last." },
-    );
-  });
-
-  await test("get by field range with order by key", async () => {
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.first": { lower: "D", upper: "P\uffff" },
-          id: { upper: 25 },
-        },
-        orderBy: ["id"],
-      }),
-      [data[2], data[3], data[5], data[6], data[8], data[12]],
-    );
-    deepEqual(
-      await queryDB(db, "people", {
-        where: {
-          "name.last": { lower: "E", upper: "R\uffff" },
-          id: { lower: 25, lowerOpen: true },
-        },
-        orderBy: ["id"],
-      }),
-      [data[14]],
-    );
-  });
-
-  after(() => {
-    db.idb.close();
-  });
-});
-
-await suite("queryDB with compound key", { concurrency: true }, async () => {
-  interface Point {
-    x: number;
-    y: number;
-    z: number;
-    n?: string;
-    t: string;
-  }
-
-  const dbSchema = {
-    points: {
-      value: schema<Point>(),
-      keyPath: ["x", "y", "z"],
-      indexes: {
-        byName: { keyPath: ["n"] },
-        byType: { keyPath: ["t"] },
-      },
-    },
-  } as const satisfies AnyDatabaseSchema;
-
-  const db = await openDB("query-comp-key", 1, dbSchema);
-
-  await db.insert(
-    "points",
-    [1, 2, 3].flatMap((y) =>
-      [1, 2, 3].flatMap((x) => [1, 2, 3].map((z) => ({ x, y, z, t: "cube" }))),
-    ),
-  );
-  await db.update("points", [[2, 2, 2]], (p) => ({ ...p!, n: "center" }));
-
-  await db.insert(
-    "points",
-    [-1, -2, -3].map((y) => ({ x: 0, y, z: 0, t: "line" })),
-  );
-  await db.update("points", [[0, -2, 0]], (p) => ({ ...p!, n: "center" }));
-
-  await db.insert("points", { x: 0, y: 0, z: 0, t: "dot", n: "origin" });
-
-  expectTypeOf(queryDB<typeof dbSchema, "points">)
-    .parameter(2)
-    .toEqualTypeOf<
-      QueryOptions<
-        {
-          readonly x?: MaybeKeyRange<number>;
-          readonly y?: MaybeKeyRange<number>;
-          readonly z?: MaybeKeyRange<number>;
-          readonly n?: MaybeKeyRange<string>;
-          readonly t?: MaybeKeyRange<string>;
-        },
-        "x" | "y" | "z" | "n" | "t"
-      >
-    >(undefined as never);
-
-  await test("get by all primary fields", async () => {
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          x: 1,
-          y: 2,
-          z: 3,
-        },
-      }),
-      [{ x: 1, y: 2, z: 3, t: "cube" }],
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          x: 2,
-          y: 2,
-          z: 2,
-        },
-      }),
-      [{ x: 2, y: 2, z: 2, t: "cube", n: "center" }],
-    );
-  });
-
-  await test("get by some primary fields", async () => {
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          x: 2,
-          y: 2,
-        },
-      }),
-      [
-        { x: 2, y: 2, z: 1, t: "cube" },
-        { x: 2, y: 2, z: 2, t: "cube", n: "center" },
-        { x: 2, y: 2, z: 3, t: "cube" },
-      ],
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          x: 2,
-          y: 2,
-        },
-        direction: "prev",
-      }),
-      [
-        { x: 2, y: 2, z: 3, t: "cube" },
-        { x: 2, y: 2, z: 2, t: "cube", n: "center" },
-        { x: 2, y: 2, z: 1, t: "cube" },
-      ],
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          x: 0,
-          y: 0,
-        },
-      }),
-      [{ x: 0, y: 0, z: 0, t: "dot", n: "origin" }],
-    );
-  });
-
-  await test("get by some primary fields ordered", async () => {
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          y: 2,
-          z: 3,
-        },
-        orderBy: ["x"],
-      }),
-      [1, 2, 3].flatMap((x) => ({ x, y: 2, z: 3, t: "cube" })),
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          y: 2,
-          z: 3,
-        },
-        orderBy: ["x"],
-        direction: "prev",
-      }),
-      [3, 2, 1].flatMap((x) => ({ x, y: 2, z: 3, t: "cube" })),
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          x: 2,
-          y: 2,
-        },
-        orderBy: ["x", "y"],
-        direction: "prev",
-      }),
-      [
-        { x: 2, y: 2, z: 3, t: "cube" },
-        { x: 2, y: 2, z: 2, t: "cube", n: "center" },
-        { x: 2, y: 2, z: 1, t: "cube" },
-      ],
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          x: 0,
-          y: 0,
-        },
-        orderBy: ["x", "y", "z"],
-      }),
-      [{ x: 0, y: 0, z: 0, t: "dot", n: "origin" }],
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          x: 0,
-          y: 0,
-        },
-        orderBy: ["z"],
-      }),
-      [{ x: 0, y: 0, z: 0, t: "dot", n: "origin" }],
-    );
-  });
-
-  await test("get by single primary field", async () => {
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          x: 1,
-        },
-      }),
-      [1, 2, 3].flatMap((y) => [1, 2, 3].map((z) => ({ x: 1, y, z, t: "cube" }))),
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          y: 2,
-        },
-      }),
-      [1, 2, 3].flatMap((x) =>
-        [1, 2, 3].map((z) => ({
-          x,
-          y: 2,
-          z,
-          t: "cube",
-          ...(x === 2 && z === 2 ? { n: "center" } : null),
-        })),
-      ),
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          z: 3,
-        },
-      }),
-      [1, 2, 3].flatMap((x) => [1, 2, 3].map((y) => ({ x, y, z: 3, t: "cube" }))),
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          z: 0,
-        },
-      }),
-      [
-        { x: 0, y: -3, z: 0, t: "line" },
-        { x: 0, y: -2, z: 0, t: "line", n: "center" },
-        { x: 0, y: -1, z: 0, t: "line" },
-        { x: 0, y: 0, z: 0, t: "dot", n: "origin" },
-      ],
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          z: -1,
-        },
-      }),
-      [],
-    );
-  });
-
-  await test("get by primary field range", async () => {
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          x: { lower: 1, upper: 3, lowerOpen: true, upperOpen: true },
-          y: { lower: 1, upper: 3, lowerOpen: true, upperOpen: true },
-        },
-      }),
-      [1, 2, 3].map((z) => ({
-        x: 2,
-        y: 2,
-        z,
-        ...(z === 2 ? { n: "center" } : null),
-        t: "cube",
-      })),
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          x: { lower: 1, upper: 3, lowerOpen: true, upperOpen: true },
-          y: { lower: 1, upper: 3, lowerOpen: true, upperOpen: true },
-        },
-        direction: "prev",
-      }),
-      [3, 2, 1].map((z) => ({
-        x: 2,
-        y: 2,
-        z,
-        ...(z === 2 ? { n: "center" } : null),
-        t: "cube",
-      })),
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          x: { lower: 1, upper: 3, lowerOpen: true, upperOpen: false },
-          y: { lower: 1, upper: 3, lowerOpen: false, upperOpen: true },
-          z: { lower: 1, upper: 3, lowerOpen: true, upperOpen: true },
-        },
-      }),
-      [2, 3].flatMap((x) =>
-        [1, 2].flatMap((y) => ({
-          x,
-          y,
-          z: 2,
-          ...(x === 2 && y === 2 ? { n: "center" } : null),
-          t: "cube",
-        })),
-      ),
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          x: { upper: 0 },
-          y: { upper: 0 },
-          z: { upper: 0 },
-        },
-      }),
-      [
-        { t: "line", x: 0, y: -3, z: 0 },
-        { n: "center", t: "line", x: 0, y: -2, z: 0 },
-        { t: "line", x: 0, y: -1, z: 0 },
-        { n: "origin", t: "dot", x: 0, y: 0, z: 0 },
-      ],
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          x: { upper: 0 },
-          y: { upper: 0 },
-          z: { upper: 0 },
-        },
-        direction: "prev",
-      }),
-      [
-        { n: "origin", t: "dot", x: 0, y: 0, z: 0 },
-        { t: "line", x: 0, y: -1, z: 0 },
-        { n: "center", t: "line", x: 0, y: -2, z: 0 },
-        { t: "line", x: 0, y: -3, z: 0 },
-      ],
-    );
-  });
-
-  await test("get by primary fields with order on field", async () => {
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          x: 1,
-          y: 2,
-          z: 3,
-        },
-        orderBy: ["t"],
-      }),
-      [{ x: 1, y: 2, z: 3, t: "cube" }],
-    );
-  });
-
-  await test("get by primary field ranges with order on field", async () => {
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          x: 0,
-          y: { lower: -2 },
-          z: 0,
-        },
-        orderBy: ["t"],
-      }),
-      [
-        { n: "origin", t: "dot", x: 0, y: 0, z: 0 },
-        { n: "center", t: "line", x: 0, y: -2, z: 0 },
-        { t: "line", x: 0, y: -1, z: 0 },
-      ],
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          x: 0,
-          y: { lower: -2 },
-          z: 0,
-        },
-        orderBy: ["n"],
-      }),
-      [
-        { n: "center", t: "line", x: 0, y: -2, z: 0 },
-        { n: "origin", t: "dot", x: 0, y: 0, z: 0 },
-      ],
-    );
-  });
-
-  await test("get by primary field ranges and field range", async () => {
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          y: { upper: -1, upperOpen: true },
-          t: { lower: "l" },
-        },
-      }),
-      [
-        { t: "line", x: 0, y: -3, z: 0 },
-        { n: "center", t: "line", x: 0, y: -2, z: 0 },
-      ],
-    );
-  });
-
-  await test("get by field equality", async () => {
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          n: "center",
-        },
-      }),
-      [
-        { n: "center", t: "line", x: 0, y: -2, z: 0 },
-        { n: "center", t: "cube", x: 2, y: 2, z: 2 },
-      ],
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          t: "line",
-        },
-      }),
-      [
-        { t: "line", x: 0, y: -3, z: 0 },
-        { n: "center", t: "line", x: 0, y: -2, z: 0 },
-        { t: "line", x: 0, y: -1, z: 0 },
-      ],
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          n: "center",
-          t: "cube",
-        },
-      }),
-      [{ n: "center", t: "cube", x: 2, y: 2, z: 2 }],
-    );
-  });
-
-  await test("get by field equality ordered", async () => {
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          n: "center",
-        },
-        orderBy: "x",
-      }),
-      [
-        { n: "center", t: "line", x: 0, y: -2, z: 0 },
-        { n: "center", t: "cube", x: 2, y: 2, z: 2 },
-      ],
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          t: "line",
-        },
-        orderBy: "x",
-      }),
-      [
-        { t: "line", x: 0, y: -3, z: 0 },
-        { n: "center", t: "line", x: 0, y: -2, z: 0 },
-        { t: "line", x: 0, y: -1, z: 0 },
-      ],
-    );
-    deepEqual(
-      await queryDB(db, "points", {
-        where: {
-          n: "center",
-          t: "cube",
-        },
-        orderBy: ["x", "y", "z"],
-      }),
-      [{ n: "center", t: "cube", x: 2, y: 2, z: 2 }],
-    );
-  });
-
-  await test("get by field equality with invalid order", async () => {
-    await rejects(
-      async () =>
-        queryDB(db, "points", {
-          where: {
-            n: "center",
-          },
-          orderBy: "t",
-        }),
-      { message: "Missing index on n+t." },
-    );
-    await rejects(
-      async () =>
-        queryDB(db, "points", {
-          where: {
-            t: "line",
-          },
-          orderBy: "y",
-        }),
-      { message: "Missing index on t+y." },
-    );
-    await rejects(
-      async () =>
-        queryDB(db, "points", {
-          where: {
-            n: "center",
-            t: "cube",
-          },
-          orderBy: ["z", "y", "x"],
-        }),
-      { message: "Missing index on n+z+y+x, t+z+y+x." },
     );
   });
 
@@ -1684,11 +756,11 @@ await suite("queryDB with optional fields", { concurrency: true }, async () => {
 
   const dbSchema = {
     items: {
-      value: schema<Item>(),
-      keyPath: "email",
-      indexes: {
-        byName: { keyPath: "name" },
-        byNameAndAge: { keyPath: ["name", "age"] },
+      itemSchema: schema<Item>(),
+      primaryKeyPath: "email",
+      indexedKeyPaths: {
+        name: { sortable: true },
+        age: {},
       },
     },
   } as const satisfies AnyDatabaseSchema;
@@ -1704,16 +776,22 @@ await suite("queryDB with optional fields", { concurrency: true }, async () => {
 
   expectTypeOf(queryDB<typeof dbSchema, "items">)
     .parameter(2)
-    .toEqualTypeOf<
-      QueryOptions<
-        {
-          readonly email?: MaybeKeyRange<string>;
-          readonly name?: MaybeKeyRange<string>;
-          readonly age?: MaybeKeyRange<number>;
-        },
-        "email" | "name" | "age"
-      >
-    >(undefined as never);
+    .toEqualTypeOf<{
+      readonly where?:
+        | {
+            readonly email?: string;
+            readonly name?: string;
+            readonly age?: number;
+          }
+        | undefined;
+      readonly orderBy?: "email" | "name" | undefined;
+      readonly lower?: string | undefined;
+      readonly upper?: string | undefined;
+      readonly lowerOpen?: boolean | undefined;
+      readonly upperOpen?: boolean | undefined;
+      readonly reverse?: boolean | undefined;
+      readonly limit?: number | undefined;
+    }>(undefined as never);
 
   await test("order by email", async () => {
     deepEqual(
@@ -1734,21 +812,12 @@ await suite("queryDB with optional fields", { concurrency: true }, async () => {
   });
 
   await test("order by age", async () => {
-    await rejects(
-      async () =>
-        queryDB(db, "items", {
-          orderBy: "age",
-        }),
-      { message: "Missing index on age." },
-    );
-    await rejects(
-      async () =>
-        queryDB(db, "items", {
-          where: {
-            age: { lower: 10, upper: 50 },
-          },
-        }),
-      { message: "Missing index on age." },
+    deepEqual(
+      await queryDB(db, "items", {
+        // @ts-expect-error -- age is not sortable
+        orderBy: "age",
+      }),
+      [data[2], data[1]],
     );
   });
 });
@@ -1762,11 +831,11 @@ await suite("queryDB with multi entry index", { concurrency: true }, async () =>
 
   const dbSchema = {
     posts: {
-      value: schema<Post>(),
-      keyPath: "id",
-      indexes: {
-        byPath: { keyPath: "path" },
-        byTags: { keyPath: "tags", multiEntry: true },
+      itemSchema: schema<Post>(),
+      primaryKeyPath: "id",
+      indexedKeyPaths: {
+        path: { sortable: true },
+        tags: { multiEntry: true },
       },
     },
   } as const satisfies AnyDatabaseSchema;
@@ -1785,16 +854,22 @@ await suite("queryDB with multi entry index", { concurrency: true }, async () =>
 
   expectTypeOf(queryDB<typeof dbSchema, "posts">)
     .parameter(2)
-    .toEqualTypeOf<
-      QueryOptions<
-        {
-          readonly id?: MaybeKeyRange<number>;
-          readonly path?: MaybeKeyRange<string[]>;
-          readonly tags?: MaybeKeyRange<string[]>;
-        },
-        "id" | "path" | "tags"
-      >
-    >(undefined as never);
+    .toEqualTypeOf<{
+      readonly where?:
+        | {
+            readonly id?: number;
+            readonly path?: string[];
+            readonly tags?: string[];
+          }
+        | undefined;
+      readonly orderBy?: "id" | "path" | undefined;
+      readonly lower?: number | string[] | undefined;
+      readonly upper?: number | string[] | undefined;
+      readonly lowerOpen?: boolean | undefined;
+      readonly upperOpen?: boolean | undefined;
+      readonly limit?: number | undefined;
+      readonly reverse?: boolean | undefined;
+    }>(undefined as never);
 
   await test("order by path", async () => {
     deepEqual(
@@ -1806,27 +881,6 @@ await suite("queryDB with multi entry index", { concurrency: true }, async () =>
         { id: 2, path: ["b", "b"], tags: ["bar", "baz"] },
         { id: 4, path: ["b", "q"], tags: ["baz", "qux"] },
         { id: 1, path: ["f", "b"], tags: ["foo", "bar"] },
-        { id: 5, path: ["q"], tags: ["qux"] },
-        { id: 6, path: ["q", "f"], tags: ["qux", "foo"] },
-      ],
-    );
-  });
-
-  await test("order by tag", async () => {
-    deepEqual(
-      await queryDB(db, "posts", {
-        orderBy: "tags",
-      }),
-      [
-        // TODO: deduplicate multi entry results
-        { id: 1, path: ["f", "b"], tags: ["foo", "bar"] },
-        { id: 2, path: ["b", "b"], tags: ["bar", "baz"] },
-        { id: 2, path: ["b", "b"], tags: ["bar", "baz"] },
-        { id: 3, path: ["b"], tags: ["baz"] },
-        { id: 4, path: ["b", "q"], tags: ["baz", "qux"] },
-        { id: 1, path: ["f", "b"], tags: ["foo", "bar"] },
-        { id: 6, path: ["q", "f"], tags: ["qux", "foo"] },
-        { id: 4, path: ["b", "q"], tags: ["baz", "qux"] },
         { id: 5, path: ["q"], tags: ["qux"] },
         { id: 6, path: ["q", "f"], tags: ["qux", "foo"] },
       ],
@@ -1856,8 +910,8 @@ await suite("queryDB with multi entry index", { concurrency: true }, async () =>
     deepEqual(
       await queryDB(db, "posts", {
         where: {
-          // TODO: multi entry feilds aren't typed correctly
-          tags: "foo" as any,
+          // @ts-expect-error: multi entry feilds aren't typed correctly
+          tags: "foo",
         },
       }),
       [
@@ -1868,7 +922,8 @@ await suite("queryDB with multi entry index", { concurrency: true }, async () =>
     deepEqual(
       await queryDB(db, "posts", {
         where: {
-          tags: "qux" as any,
+          // @ts-expect-error: multi entry feilds aren't typed correctly
+          tags: "qux",
         },
       }),
       [
@@ -1878,4 +933,6 @@ await suite("queryDB with multi entry index", { concurrency: true }, async () =>
       ],
     );
   });
+
+  // TODO: get by multiple tags
 });

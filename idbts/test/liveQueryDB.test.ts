@@ -9,8 +9,8 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
   await test("buffers changes until initial query resolves", async () => {
     const db = await openDB("live-query-buffering", 1, {
       items: {
-        value: schema<{ id: number }>(),
-        keyPath: "id",
+        itemSchema: schema<{ id: number }>(),
+        primaryKeyPath: "id",
       },
     });
     const mutations: Promise<void>[] = [];
@@ -30,14 +30,14 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
   });
 
   await test("by primary key", async (t) => {
-    interface Record {
+    interface Item {
       n: number;
       s?: string;
     }
     const db = await openDB("live-query-primary-key", 1, {
       nums: {
-        value: schema<Record>(),
-        keyPath: "n",
+        itemSchema: schema<Item>(),
+        primaryKeyPath: "n",
       },
     });
 
@@ -159,7 +159,7 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
       // DB: [3]
       const ac = new AbortController();
       const changesPromise = collect(
-        liveQueryDB(db, "nums", { where: { n: { lower: 2, upper: 4 } } }),
+        liveQueryDB(db, "nums", { orderBy: "n", lower: 2, upper: 4 }),
         ac.signal,
       );
       await db.insert("nums", { n: 2 });
@@ -209,155 +209,19 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
     db.idb.close();
   });
 
-  await test("by compound primary key", async (t) => {
-    interface Record {
-      x: number;
-      y: number;
-      s?: string;
-    }
-    const db = await openDB("live-query-compound-key", 1, {
-      points: {
-        value: schema<Record>(),
-        keyPath: ["x", "y"],
-      },
-    });
-
-    await t.test("watching all keys", async (t) => {
-      await t.test("insert at the end", async () => {
-        // DB: []
-        const ac = new AbortController();
-        const changes = collect(liveQueryDB(db, "points", {}), ac.signal);
-        await db.insert("points", { x: 1, y: 1 });
-        // DB: [(1,1)]
-        await db.insert("points", { x: 2, y: 2 });
-        // DB: [(1,1), (2,2)]
-        await tick();
-        ac.abort();
-        deepEqual(await changes, [
-          [],
-          [{ x: 1, y: 1 }],
-          [
-            { x: 1, y: 1 },
-            { x: 2, y: 2 },
-          ],
-        ]);
-      });
-
-      await t.test("insert in between", async () => {
-        // DB: [(1,1), (2,2)]
-        const ac = new AbortController();
-        const changes = collect(liveQueryDB(db, "points", {}), ac.signal);
-        await db.insert("points", { x: 2, y: 1 });
-        // DB: [(1,1), (2,1), (2,2)]
-        await db.insert("points", { x: 1, y: 2 });
-        // DB: [(1,1), (1,2), (2,1), (2,2)]
-        await tick();
-        ac.abort();
-        deepEqual(await changes, [
-          [
-            { x: 1, y: 1 },
-            { x: 2, y: 2 },
-          ],
-          [
-            { x: 1, y: 1 },
-            { x: 2, y: 1 },
-            { x: 2, y: 2 },
-          ],
-          [
-            { x: 1, y: 1 },
-            { x: 1, y: 2 },
-            { x: 2, y: 1 },
-            { x: 2, y: 2 },
-          ],
-        ]);
-      });
-
-      await t.test("update", async () => {
-        // DB: [(1,1), (1,2), (2,1), (2,2)]
-        const ac = new AbortController();
-        const changes = collect(liveQueryDB(db, "points", {}), ac.signal);
-        await db.update("points", [[1, 2]], (value) => ({
-          x: value!.x,
-          y: value!.y,
-          s: "updated",
-        }));
-        // DB: [(1,1), (1,2,s:"updated"), (2,1), (2,2)]
-        await db.update("points", [[2, 1]], (value) => ({
-          x: value!.x,
-          y: value!.y,
-          s: "updated",
-        }));
-        // DB: [(1,1), (1,2,s:"updated"), (2,1,s:"updated"), (2,2)]
-        await tick();
-        ac.abort();
-        deepEqual(await changes, [
-          [
-            { x: 1, y: 1 },
-            { x: 1, y: 2 },
-            { x: 2, y: 1 },
-            { x: 2, y: 2 },
-          ],
-          [
-            { x: 1, y: 1 },
-            { x: 1, y: 2, s: "updated" },
-            { x: 2, y: 1 },
-            { x: 2, y: 2 },
-          ],
-          [
-            { x: 1, y: 1 },
-            { x: 1, y: 2, s: "updated" },
-            { x: 2, y: 1, s: "updated" },
-            { x: 2, y: 2 },
-          ],
-        ]);
-      });
-
-      await t.test("delete", async () => {
-        // DB: [(1,1), (1,2,s:"updated"), (2,1,s:"updated"), (2,2)]
-        const ac = new AbortController();
-        const changes = collect(liveQueryDB(db, "points", {}), ac.signal);
-        await db.delete("points", [[1, 2]]);
-        // DB: [(1,1), (2,1,s:"updated"), (2,2)]
-        await db.delete("points", [[2, 1]]);
-        // DB: [(1,1), (2,2)]
-        await tick();
-        ac.abort();
-        deepEqual(await changes, [
-          [
-            { x: 1, y: 1 },
-            { x: 1, y: 2, s: "updated" },
-            { x: 2, y: 1, s: "updated" },
-            { x: 2, y: 2 },
-          ],
-          [
-            { x: 1, y: 1 },
-            { x: 2, y: 1, s: "updated" },
-            { x: 2, y: 2 },
-          ],
-          [
-            { x: 1, y: 1 },
-            { x: 2, y: 2 },
-          ],
-        ]);
-      });
-    });
-
-    db.idb.close();
-  });
-
   await test("by index", async (t) => {
-    interface Record {
+    interface Item {
       id: number;
       name: string;
       age: number;
     }
     const db = await openDB("live-query-index", 1, {
       people: {
-        value: schema<Record>(),
-        keyPath: "id",
-        indexes: {
-          byName: { keyPath: "name" },
-          byAge: { keyPath: "age" },
+        itemSchema: schema<Item>(),
+        primaryKeyPath: "id",
+        indexedKeyPaths: {
+          name: { sortable: true },
+          age: { sortable: true },
         },
       },
     });
@@ -475,7 +339,7 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
         // DB: [{id:2,"Charlie",20}, {id:3,"Alice",30}]
         const ac = new AbortController();
         const changes = collect(
-          liveQueryDB(db, "people", { where: { age: { lower: 25 } } }),
+          liveQueryDB(db, "people", { orderBy: "age", lower: 25 }),
           ac.signal,
         );
         await db.insert("people", { id: 4, name: "Eve", age: 28 });
@@ -487,8 +351,8 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
         deepEqual(await changes, [
           [{ id: 3, name: "Alice", age: 30 }],
           [
-            { id: 3, name: "Alice", age: 30 },
             { id: 4, name: "Eve", age: 28 },
+            { id: 3, name: "Alice", age: 30 },
           ],
           [{ id: 3, name: "Alice", age: 30 }],
         ]);
@@ -498,7 +362,7 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
         // DB: [{id:2,"Charlie",20}, {id:3,"Alice",30}]
         const ac = new AbortController();
         const changes = collect(
-          liveQueryDB(db, "people", { where: { age: { lower: 25 } } }),
+          liveQueryDB(db, "people", { orderBy: "age", lower: 25 }),
           ac.signal,
         );
         await db.insert("people", { id: 5, name: "Frank", age: 22 });
@@ -514,7 +378,7 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
         // DB: [{id:2,"Charlie",20}, {id:3,"Alice",30}]
         const ac = new AbortController();
         const changes = collect(
-          liveQueryDB(db, "people", { orderBy: "age", where: { age: { upper: 25 } } }),
+          liveQueryDB(db, "people", { orderBy: "age", upper: 25 }),
           ac.signal,
         );
         await db.update("people", 3, (value) => ({ ...value!, age: 25 }));
@@ -579,8 +443,8 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
     }
     const db = await openDB("live-query-limit", 1, {
       nums: {
-        value: schema<Record>(),
-        keyPath: "n",
+        itemSchema: schema<Record>(),
+        primaryKeyPath: "n",
       },
     });
 
@@ -653,7 +517,7 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
     await t.test("limit + direction prev", async () => {
       const ac = new AbortController();
       const changesPromise = collect(
-        liveQueryDB(db, "nums", { limit: 2, direction: "prev" }),
+        liveQueryDB(db, "nums", { limit: 2, reverse: true }),
         ac.signal,
       );
       await tick();
@@ -670,7 +534,7 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
     await t.test("limit + where", async () => {
       const ac = new AbortController();
       const changesPromise = collect(
-        liveQueryDB(db, "nums", { limit: 2, where: { n: { lower: 4 } } }),
+        liveQueryDB(db, "nums", { orderBy: "n", lower: 4, limit: 2 }),
         ac.signal,
       );
       await tick();
@@ -691,9 +555,11 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
       }
       const db2 = await openDB("live-query-limit-orderby", 1, {
         items: {
-          value: schema<Item>(),
-          keyPath: "id",
-          indexes: { byScore: { keyPath: "score" } },
+          itemSchema: schema<Item>(),
+          primaryKeyPath: "id",
+          indexedKeyPaths: {
+            score: { sortable: true },
+          },
         },
       });
       await db2.insert("items", [

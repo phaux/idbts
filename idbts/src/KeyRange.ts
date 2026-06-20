@@ -65,7 +65,7 @@ export function toKeyRange(
  * are treated as exact-equality ranges by setting both `lower` and `upper` to the same value.
  * Plain objects that are already {@link KeyRangeObject}s are returned as-is.
  */
-function toKeyRangeObject(
+export function toKeyRangeObject(
   maybeRange: MaybeKeyRange<IDBValidKey> | undefined,
 ): KeyRangeObject<IDBValidKey> {
   if (

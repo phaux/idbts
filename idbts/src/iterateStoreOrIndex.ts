@@ -6,11 +6,9 @@ import { skipCursorOverRanges } from "./skipCursorOverRanges.ts";
  */
 export interface CursorIterationOptions {
   /**
-   * Cursor traversal direction.
-   *
-   * @see {@link IDBCursorDirection}
+   * Whether to reverse the traversal direction.
    */
-  readonly direction?: "next" | "prev" | undefined;
+  readonly reverse?: boolean | undefined;
   /**
    * Maximum number of records to yield. Defaults to `Infinity` (no limit).
    */
@@ -82,11 +80,12 @@ export async function* iterateStoreOrIndex<T>(
   primaryKeyRanges: IDBKeyRange | readonly (IDBKeyRange | undefined)[] | undefined,
   options: CursorIterationOptions,
 ): AsyncGenerator<T, undefined, undefined> {
-  const { direction, limit = Infinity } = options;
+  const { reverse = false, limit = Infinity } = options;
+  const direction = reverse ? "prev" : "next";
   let cursor = await idbReqToPromise(iteratable.openCursor(null, direction));
   let i = 0;
   while (i < limit) {
-    cursor = await skipCursorOverRanges(cursor, keyRanges, primaryKeyRanges, direction === "prev");
+    cursor = await skipCursorOverRanges(cursor, keyRanges, primaryKeyRanges, reverse);
     if (!cursor) break;
     yield cursor.value;
     i++;

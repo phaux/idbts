@@ -19,7 +19,7 @@ await suite("openDB", async () => {
       "test-db",
       1,
       {
-        strs: { keyPath: "id", value: schema<StrRecord>() },
+        strs: { primaryKeyPath: "id", itemSchema: schema<StrRecord>() },
       },
       { onUpgradeNeeded },
     );
@@ -36,7 +36,7 @@ await suite("openDB", async () => {
       "test-db",
       1,
       {
-        strs: { keyPath: "id", value: schema<StrRecord>() },
+        strs: { primaryKeyPath: "id", itemSchema: schema<StrRecord>() },
       },
       { onUpgradeNeeded },
     );
@@ -51,15 +51,15 @@ await suite("openDB", async () => {
       "test-db",
       2,
       {
-        strs: { keyPath: "id", value: schema<StrRecord>() },
-        nums: { keyPath: "id", value: schema<NumRecord>(), indexes: { byA: { keyPath: "a" } } },
+        strs: { primaryKeyPath: "id", itemSchema: schema<StrRecord>() },
+        nums: { primaryKeyPath: "id", itemSchema: schema<NumRecord>(), indexedKeyPaths: { a: {} } },
       },
       { onUpgradeNeeded },
     );
     deepEqual(new Set(Array.from(db.storeNames)), new Set(["strs", "nums"]));
     const tx = db.idb.transaction("nums", "readonly");
     const numStore = tx.objectStore("nums");
-    deepEqual(Array.from(numStore.indexNames), ["byA"]);
+    deepEqual(Array.from(numStore.indexNames), ["a"]);
     db.idb.close();
     deepEqual(onUpgradeNeeded.mock.calls.length, 1);
     deepEqual(onUpgradeNeeded.mock.calls[0]?.arguments[0]?.oldVersion, 1);
@@ -72,11 +72,11 @@ await suite("openDB", async () => {
       "test-db",
       3,
       {
-        strs: { keyPath: "id", value: schema<StrRecord>() },
+        strs: { primaryKeyPath: "id", itemSchema: schema<StrRecord>() },
         nums: {
-          keyPath: "id",
-          value: schema<NumRecord>(),
-          indexes: { byA: { keyPath: "a" }, byB: { keyPath: "b" } },
+          primaryKeyPath: "id",
+          itemSchema: schema<NumRecord>(),
+          indexedKeyPaths: { a: {}, b: {} },
         },
       },
       { onUpgradeNeeded },
@@ -84,7 +84,7 @@ await suite("openDB", async () => {
     {
       const tx = db.idb.transaction("nums", "readonly");
       const numStore = tx.objectStore("nums");
-      deepEqual(new Set(Array.from(numStore.indexNames)), new Set(["byA", "byB"]));
+      deepEqual(new Set(Array.from(numStore.indexNames)), new Set(["a", "b"]));
     }
     db.idb.close();
     deepEqual(onUpgradeNeeded.mock.calls.length, 1);
@@ -92,21 +92,40 @@ await suite("openDB", async () => {
     deepEqual(onUpgradeNeeded.mock.calls[0].arguments[0].newVersion, 3);
   });
 
-  await test("upgrade deletes indexes", async () => {
+  await test("adding sortable index creates composite indexes", async () => {
     const db = await openDB("test-db", 4, {
-      strs: { keyPath: "id", value: schema<StrRecord>() },
-      nums: { keyPath: "id", value: schema<NumRecord>(), indexes: { byB: { keyPath: "b" } } },
+      strs: { primaryKeyPath: "id", itemSchema: schema<StrRecord>() },
+      nums: {
+        primaryKeyPath: "id",
+        itemSchema: schema<NumRecord>(),
+        indexedKeyPaths: { a: {}, b: {}, c: { sortable: true } },
+      },
     });
     {
       const tx = db.idb.transaction("nums", "readonly");
       const numStore = tx.objectStore("nums");
-      deepEqual(Array.from(numStore.indexNames), ["byB"]);
+      deepEqual(new Set(Array.from(numStore.indexNames)), new Set(["a", "a+c", "b", "b+c", "c"]));
+    }
+    db.idb.close();
+  });
+
+  await test("upgrade deletes indexes", async () => {
+    const db = await openDB("test-db", 5, {
+      strs: { primaryKeyPath: "id", itemSchema: schema<StrRecord>() },
+      nums: { primaryKeyPath: "id", itemSchema: schema<NumRecord>(), indexedKeyPaths: { b: {} } },
+    });
+    {
+      const tx = db.idb.transaction("nums", "readonly");
+      const numStore = tx.objectStore("nums");
+      deepEqual(Array.from(numStore.indexNames), ["b"]);
     }
     db.idb.close();
   });
 
   await test("upgrade deletes stores", async () => {
-    const db = await openDB("test-db", 5, { nums: { keyPath: "id", value: schema<NumRecord>() } });
+    const db = await openDB("test-db", 6, {
+      nums: { primaryKeyPath: "id", itemSchema: schema<NumRecord>() },
+    });
     deepEqual(Array.from(db.storeNames), ["nums"]);
     db.idb.close();
   });
@@ -118,7 +137,7 @@ await suite("openDB", async () => {
         "test-db",
         3,
         {
-          strs: { keyPath: "id", value: schema<StrRecord>() },
+          strs: { primaryKeyPath: "id", itemSchema: schema<StrRecord>() },
         },
         { onUpgradeNeeded },
       ),

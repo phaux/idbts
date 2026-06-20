@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
+
 /* eslint-disable @typescript-eslint/unbound-method */
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { expectTypeOf } from "expect-type";
@@ -12,31 +12,27 @@ import { schema } from "../src/schema.ts";
 
 await suite("Database", { concurrency: true }, async () => {
   await test("inline key and index", async (t) => {
-    interface NameRecord {
+    interface NameItem {
       readonly id: number;
       readonly name: string;
     }
-    interface DateRecord {
+    interface DateItem {
       readonly id: number | string;
       readonly created: Date;
     }
     const db = await openDB("inline-key+index", 1, {
       num2name: {
-        keyPath: "id",
-        value: schema<NameRecord>(),
-        indexes: {
-          byName: {
-            keyPath: "name",
-          },
+        primaryKeyPath: "id",
+        itemSchema: schema<NameItem>(),
+        indexedKeyPaths: {
+          name: {},
         },
       },
       union2date: {
-        keyPath: "id",
-        value: schema<DateRecord>(),
-        indexes: {
-          byDate: {
-            keyPath: "created",
-          },
+        primaryKeyPath: "id",
+        itemSchema: schema<DateItem>(),
+        indexedKeyPaths: {
+          created: {},
         },
       },
     });
@@ -44,14 +40,14 @@ await suite("Database", { concurrency: true }, async () => {
     await t.test("insert and get name", async () => {
       expectTypeOf(db.insert<"num2name">)
         .parameter(1)
-        .toEqualTypeOf<NameRecord | readonly NameRecord[]>();
+        .toEqualTypeOf<NameItem | readonly NameItem[]>();
       await db.insert("num2name", { id: 1, name: "foo" });
       expectTypeOf(db.get<"num2name">)
         .parameter(1)
         .toEqualTypeOf<number>();
-      expectTypeOf(db.get<"num2name">).returns.resolves.toEqualTypeOf<NameRecord | undefined>();
+      expectTypeOf(db.get<"num2name">).returns.resolves.toEqualTypeOf<NameItem | undefined>();
       deepEqual(await db.get("num2name", 1), { id: 1, name: "foo" });
-      expectTypeOf(db.getAll<"num2name">).returns.resolves.toEqualTypeOf<NameRecord[]>();
+      expectTypeOf(db.getAll<"num2name">).returns.resolves.toEqualTypeOf<NameItem[]>();
       deepEqual(await db.getAll("num2name"), [{ id: 1, name: "foo" }]);
     });
 
@@ -60,7 +56,7 @@ await suite("Database", { concurrency: true }, async () => {
     await t.test("insert and get date", async () => {
       expectTypeOf(db.insert<"union2date">)
         .parameter(1)
-        .toEqualTypeOf<DateRecord | readonly DateRecord[]>();
+        .toEqualTypeOf<DateItem | readonly DateItem[]>();
       await db.insert("union2date", [
         { id: 1, created: now },
         { id: "two", created: now },
@@ -69,7 +65,7 @@ await suite("Database", { concurrency: true }, async () => {
         .parameter(1)
         .toEqualTypeOf<number | string>();
       deepEqual(await db.get("union2date", 1), { id: 1, created: now });
-      expectTypeOf(db.getAll<"union2date">).returns.resolves.toEqualTypeOf<DateRecord[]>();
+      expectTypeOf(db.getAll<"union2date">).returns.resolves.toEqualTypeOf<DateItem[]>();
       deepEqual(await db.getAll("union2date"), [
         { id: 1, created: now },
         { id: "two", created: now },
@@ -80,8 +76,8 @@ await suite("Database", { concurrency: true }, async () => {
       const type = expectTypeOf(db.update<"num2name">);
       type.parameter(1).toEqualTypeOf<number | readonly number[]>();
       const updater = type.parameter(2);
-      updater.parameter(0).toEqualTypeOf<Readonly<NameRecord> | undefined>();
-      updater.returns.toEqualTypeOf<Readonly<NameRecord> | undefined>();
+      updater.parameter(0).toEqualTypeOf<Readonly<NameItem> | undefined>();
+      updater.returns.toEqualTypeOf<Readonly<NameItem> | undefined>();
       await db.update("num2name", 1, (value) => ({ ...value!, name: value!.name + "!" }));
       deepEqual(await db.get("num2name", 1), { id: 1, name: "foo!" });
     });
@@ -191,17 +187,15 @@ await suite("Database", { concurrency: true }, async () => {
   });
 
   await test("deeply nested key and index", async (t) => {
-    interface Record {
+    interface Item {
       foo: { bar: { baz: string } };
     }
     const db = await openDB("deeply-nested-key+index", 1, {
       deeplyNested: {
-        keyPath: "foo.bar.baz",
-        value: schema<Record>(),
-        indexes: {
-          byBaz: {
-            keyPath: "foo.bar.baz",
-          },
+        primaryKeyPath: "foo.bar.baz",
+        itemSchema: schema<Item>(),
+        indexedKeyPaths: {
+          "foo.bar.baz": {},
         },
       },
     });
@@ -223,13 +217,13 @@ await suite("Database", { concurrency: true }, async () => {
     });
 
     await t.test("insert fails with missing value at key path", async () => {
-      await rejects(async () => db.insert("deeplyNested", { foo: { bar: {} } } as any), {
+      await rejects(async () => db.insert("deeplyNested", { foo: { bar: {} as never } }), {
         name: "DataError",
       });
     });
 
     await t.test("upsert fails with missing value at key path", async () => {
-      await rejects(async () => db.upsert("deeplyNested", { foo: { bar: {} } } as any), {
+      await rejects(async () => db.upsert("deeplyNested", { foo: { bar: {} as never } }), {
         name: "DataError",
       });
       await rejects(
@@ -254,8 +248,8 @@ await suite("Database", { concurrency: true }, async () => {
   await test("invalid key path - missing", async () => {
     const db = await openDB("missing-key-path", 1, {
       invalid: {
-        keyPath: "doesnt.exist",
-        value: schema<object>(),
+        primaryKeyPath: "doesnt.exist",
+        itemSchema: schema<object>(),
       },
     });
 
@@ -274,8 +268,8 @@ await suite("Database", { concurrency: true }, async () => {
     }
     const db = await openDB("boolean-key-path", 1, {
       invalid: {
-        keyPath: "foo",
-        value: schema<Record>(),
+        primaryKeyPath: "foo",
+        itemSchema: schema<Record>(),
       },
     });
 
@@ -289,13 +283,13 @@ await suite("Database", { concurrency: true }, async () => {
   });
 
   await test("special properties - string", async () => {
-    interface Record {
+    interface Item {
       str: string;
     }
     const db = await openDB("special-properties-string", 1, {
       special: {
-        value: schema<Record>(),
-        keyPath: "str.length",
+        itemSchema: schema<Item>(),
+        primaryKeyPath: "str.length",
       },
     });
 
@@ -310,13 +304,13 @@ await suite("Database", { concurrency: true }, async () => {
   });
 
   await test("special properties - array", async () => {
-    interface Record {
+    interface Item {
       arr: boolean[];
     }
     const db = await openDB("special-properties-array", 1, {
       special: {
-        value: schema<Record>(),
-        keyPath: "arr.length",
+        itemSchema: schema<Item>(),
+        primaryKeyPath: "arr.length",
       },
     });
 
@@ -331,14 +325,14 @@ await suite("Database", { concurrency: true }, async () => {
   });
 
   await test("array key", async (t) => {
-    interface Record {
+    interface Item {
       coords: [x: number, y: number];
       name?: string;
     }
     const db = await openDB("array-key", 1, {
       points: {
-        value: schema<Record>(),
-        keyPath: "coords",
+        itemSchema: schema<Item>(),
+        primaryKeyPath: "coords",
       },
     });
 
@@ -354,8 +348,8 @@ await suite("Database", { concurrency: true }, async () => {
       const type = expectTypeOf(db.update<"points">);
       type.parameter(1).toEqualTypeOf<readonly [number, number][]>();
       const updater = type.parameter(2);
-      updater.parameter(0).toEqualTypeOf<Readonly<Record> | undefined>();
-      updater.returns.toEqualTypeOf<Readonly<Record> | undefined>();
+      updater.parameter(0).toEqualTypeOf<Readonly<Item> | undefined>();
+      updater.returns.toEqualTypeOf<Readonly<Item> | undefined>();
       await db.update("points", [[1, 2]], (value) => ({ coords: value!.coords, name: "point" }));
       deepEqual(await db.get("points", [1, 2]), { coords: [1, 2], name: "point" });
     });
@@ -384,65 +378,6 @@ await suite("Database", { concurrency: true }, async () => {
     db.idb.close();
   });
 
-  await test("compound key", async (t) => {
-    interface Record {
-      x: number;
-      y: number;
-      name?: string;
-    }
-    const db = await openDB("compound-key", 1, {
-      points: {
-        value: schema<Record>(),
-        keyPath: ["x", "y"],
-      },
-    });
-
-    await t.test("insert and get", async () => {
-      await db.insert("points", [
-        { x: 1, y: 2 },
-        { x: 3, y: 4 },
-      ]);
-      expectTypeOf(db.get<"points">)
-        .parameter(1)
-        .toEqualTypeOf<readonly [number, number]>();
-      deepEqual(await db.get("points", [1, 2]), { x: 1, y: 2 });
-    });
-
-    await t.test("update", async () => {
-      const type = expectTypeOf(db.update<"points">);
-      type.parameter(1).toEqualTypeOf<readonly (readonly [number, number])[]>();
-      const updater = type.parameter(2);
-      updater.parameter(0).toEqualTypeOf<Readonly<Record> | undefined>();
-      updater.returns.toEqualTypeOf<Readonly<Record> | undefined>();
-      await db.update("points", [[1, 2]], (value) => ({ x: value!.x, y: value!.y, name: "point" }));
-      deepEqual(await db.get("points", [1, 2]), { x: 1, y: 2, name: "point" });
-    });
-
-    await t.test("update many", async () => {
-      await db.update(
-        "points",
-        [
-          [1, 2],
-          [3, 4],
-        ],
-        (value) => ({ x: value!.x, y: value!.y, name: "updated" }),
-      );
-      deepEqual(await db.get("points", [1, 2]), { x: 1, y: 2, name: "updated" });
-      deepEqual(await db.get("points", [3, 4]), { x: 3, y: 4, name: "updated" });
-    });
-
-    await t.test("update throws if key changed", async () => {
-      await rejects(async () =>
-        db.update("points", [[1, 2]], (value) => ({
-          x: value!.x + 1,
-          y: value!.y + 1,
-        })),
-      );
-    });
-
-    db.idb.close();
-  });
-
   await test("schema validation with zod", async (t) => {
     const userSchema = z.object({
       id: z.number().int().positive(),
@@ -454,8 +389,8 @@ await suite("Database", { concurrency: true }, async () => {
 
     const db = await openDB("zod-validation", 1, {
       users: {
-        value: userSchema,
-        keyPath: "id",
+        itemSchema: userSchema,
+        primaryKeyPath: "id",
       },
     });
 
@@ -532,8 +467,8 @@ await suite("Database", { concurrency: true }, async () => {
     await t.test("no-op schema skips validation", async () => {
       const db2 = await openDB("zod-noop", 1, {
         items: {
-          value: schema<User>(),
-          keyPath: "id",
+          itemSchema: schema<User>(),
+          primaryKeyPath: "id",
         },
       });
       await db2.insert("items", { id: 99, name: "", age: -1 });
@@ -568,8 +503,8 @@ await suite("Database", { concurrency: true }, async () => {
 
     const db = await openDB("transform-schema-types", 1, {
       users: {
-        value: transformSchema,
-        keyPath: "id",
+        itemSchema: transformSchema,
+        primaryKeyPath: "id",
       },
     });
 

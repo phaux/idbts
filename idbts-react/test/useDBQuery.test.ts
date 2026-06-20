@@ -8,13 +8,13 @@ import { useDBQuery } from "../src/useDBQuery.ts";
 await suite("useDBQuery", async () => {
   const db = await openDB("use-db-query", 1, {
     users: {
-      keyPath: "id",
-      value: schema<{
+      primaryKeyPath: "id",
+      itemSchema: schema<{
         id: number;
         name: string;
       }>(),
-      indexes: {
-        byName: { keyPath: "name" },
+      indexedKeyPaths: {
+        name: { sortable: true },
       },
     },
   });
@@ -96,7 +96,7 @@ await suite("useDBQuery", async () => {
     await act(async () => db.insert("users", { id: 2, name: "Charlie" }));
     // DB: 1 Bob Updated, 2 Charlie
     await waitForText("Bob UpdatedCharlie");
-    await act(async () => root.render(h(UserList, { direction: "prev" })));
+    await act(async () => root.render(h(UserList, { reverse: true })));
     await waitForText("CharlieBob Updated");
     await act(async () => db.delete("users", [1, 2]));
     // DB: (empty)
@@ -107,8 +107,9 @@ await suite("useDBQuery", async () => {
     await act(async () =>
       root.render(
         h(UserList, {
-          where: { name: { lower: "B", upper: "K\uFFFF" } },
-          orderBy: "name", // TODO: should be not needed.
+          orderBy: "name",
+          lower: "B",
+          upper: "K\uFFFF",
         }),
       ),
     );
@@ -125,8 +126,9 @@ await suite("useDBQuery", async () => {
     await act(async () =>
       root.render(
         h(UserList, {
-          where: { name: { lower: "B", upper: "B\uFFFF" } },
           orderBy: "name",
+          lower: "B",
+          upper: "B\uFFFF",
         }),
       ),
     );

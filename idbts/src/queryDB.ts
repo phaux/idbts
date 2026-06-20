@@ -1,18 +1,12 @@
-import type {
-  AnyDatabaseSchema,
-  AnyIndexSchema,
-  AnyStoreSchema,
-  Database,
-  StoreValue,
-} from "./Database.ts";
+import type { AnyDatabaseSchema, AnyStoreSchema, Database, StoreValue } from "./Database.ts";
 import { iterateIndexesConcurrently } from "./iterateIndexesConcurrently.ts";
 import { iterateStoreOrIndex, type CursorIterationOptions } from "./iterateStoreOrIndex.ts";
 import type { FieldValue } from "./KeyPath.ts";
 import { isSingleValueRange, toKeyRange, type MaybeKeyRange } from "./KeyRange.ts";
 
 /**
- * Executes a one-shot async query against an IndexedDB object store
- * and returns all matching records as an array.
+ * Executes a one-shot async query against a database
+ * and returns all matching items as an array.
  *
  * The function automatically selects the most efficient strategy:
  *
@@ -32,9 +26,9 @@ import { isSingleValueRange, toKeyRange, type MaybeKeyRange } from "./KeyRange.t
  * const results = await queryDB(db, "users", {
  *   where: {
  *     "name.first": "Alice",
- *     age: { lower: 18 },
  *   },
  *   orderBy: "age",
+ *   lower: 18,
  * });
  * ```
  *
@@ -53,7 +47,13 @@ export async function queryDB<
 ): Promise<StoreValue<Schema[StoreName]>[]> {
   const tx = db.idb.transaction(storeName, "readonly");
   const store = tx.objectStore(storeName);
-  const { where = {}, orderBy = [] } = options;
+  const primaryKeyPath = store.keyPath as string;
+  const { where = {}, orderBy, lower, lowerOpen, upper, upperOpen } = options;
+
+  if (orderBy != null && (lower != null || upper != null)) {
+    const orderRange = toKeyRange({ lower, lowerOpen, upper, upperOpen });
+    (where as Record<string, IDBKeyRange | undefined>)[orderBy] ??= orderRange;
+  }
 
   /** Map of normalized query filters passed in the where clause. */
   const queryFilterMap = new Map(
@@ -79,16 +79,14 @@ export async function queryDB<
    * Fields which are filtered by a single value are removed, as they don't affect order.
    * Ultimately, the chosen index must contain these fields in this order.
    */
-  const queryOrderFields = (
-    (Array.isArray as (v: unknown) => v is readonly unknown[])(orderBy) ? orderBy : [orderBy]
-  ).filter((field) => !queryEqFields.has(field));
+  const queryOrderFields = (orderBy != null ? [orderBy] : []).filter(
+    (field) => !queryEqFields.has(field),
+  );
   const sortableQueryFields = new Set([...queryOrderFields, ...queryRangeFields]);
   const allQueryFields = new Set([...queryEqFields, ...sortableQueryFields]);
-  const primaryKeyFields = Array.isArray(store.keyPath) ? store.keyPath : [store.keyPath!];
+  const primaryKeyFields = [primaryKeyPath];
   const sortablePrimaryKeyFields = primaryKeyFields.filter((field) => !queryEqFields.has(field));
-  const primaryKeyRanges = Array.isArray(store.keyPath)
-    ? store.keyPath.map((field) => queryFilterMap.get(field))
-    : queryFilterMap.get(store.keyPath!);
+  const primaryKeyRanges = queryFilterMap.get(primaryKeyPath);
 
   // Check if all query fields exist in the primary key,
   // and the order of fields is correct for sorting.
@@ -203,129 +201,98 @@ export class MissingIndexError extends Error {
 /**
  * Options accepted by {@link queryDB}.
  */
-export interface QueryOptions<StoreSchema extends AnyStoreSchema> extends CursorIterationOptions {
+export type QueryOptions<StoreSchema extends AnyStoreSchema> = {
   /**
-   * Field-level filter predicates.
+   * Field equality filter predicates.
    * Store item must satisfy all of them to be included in the results (AND semantics).
    * Omit entirely to return all records.
-   *
-   * Each key is a field path present on the store's primary key or one of its indexes;
-   * the value is either an exact value (equality filter)
-   * or an {@link IDBKeyRange}-shaped object (range filter).
-   *
-   * Examples:
-   *
-   * ```js
-   * where = { "name.first": "Alice" }; // single value
-   * where = { age: IDBKeyRange.bound(18, 65) }; // 18 <= age <= 65
-   * where = { age: { lower: 18, upper: 65 } }; // same as above
-   * where = { age: { lower: 18, lowerOpen: true } }; // age > 18
-   * where = { age: { upper: 65, upperOpen: true } }; // age < 65
-   * where = { // multiple fields (AND)
-   *   "name.first": "Piotr",
-   *   "name.last": "Nowak",
-   * };
-   * ```
    */
   readonly where?: QueryFilters<StoreSchema> | undefined;
-  /**
-   * One or more field paths to sort the results by.
-   *
-   * When omitted, order depends on the specified fields in `where` (if any),
-   * or the store's natural primary key order otherwise.
-   */
-  readonly orderBy?: QueryOrder<StoreSchema> | undefined;
-}
+} & QueryOrderAndRange<StoreSchema> &
+  CursorIterationOptions;
 
 /**
- * A partial map of field path → key range used to filter query results.
- *
- * Keys are the union of all filterable fields:
- * every component of the store's primary key ({@link QueryFieldsFromStore})
- * plus every component of every named index ({@link QueryFieldsFromIndexes}).
- *
- * Each value is either:
- * - a plain {@link IDBValidKey} value (interpreted as an equality filter), or
- * - an {@link IDBKeyRange}-shaped object
- *   (can be a plain object; interpreted as a bounds filter), or
- * - `undefined` / absent (field is not filtered).
- *
- * Each field value is additionally constrained to the actual type at that field path.
+ * A partial map of primary/indexed field path → key value at that path.
+ * Used to filter query results.
  */
 export type QueryFilters<StoreSchema extends AnyStoreSchema> = {
-  readonly [K in QueryFieldsFromStore<StoreSchema>]?: MaybeKeyRange<
-    Extract<FieldValue<StoreValue<StoreSchema>, K>, IDBValidKey>
+  readonly [K in StoreSchema["primaryKeyPath"]]?: Extract<
+    FieldValue<StoreValue<StoreSchema>, K>,
+    IDBValidKey
   >;
 } & {
-  readonly [K in QueryFieldsFromIndexes<StoreSchema> & string]?: MaybeKeyRange<
-    Extract<FieldValue<StoreValue<StoreSchema>, K>, IDBValidKey>
+  readonly [K in StoreIndexedKeyPaths<StoreSchema> & string]?: Extract<
+    FieldValue<StoreValue<StoreSchema>, K>,
+    IDBValidKey
   >;
 };
 
 /**
- * Extracts the filterable/sortable field names
- * that come from the store's own primary key path.
- *
- * - For a composite key path (array of key paths)
- *   this is the union of all its components.
- * - For a simple key path this is that single string.
+ * Infers possible order and range type combinations for the given store schema.
  */
-export type QueryFieldsFromStore<StoreSchema extends AnyStoreSchema> =
-  StoreSchema["keyPath"] extends readonly string[]
-    ? StoreSchema["keyPath"][number] & string
-    : StoreSchema["keyPath"] extends string
-      ? StoreSchema["keyPath"] & string
-      : never;
+export type QueryOrderAndRange<StoreSchema extends AnyStoreSchema> =
+  | {
+      [K in StoreOrderKeyPath<StoreSchema>]: OrderAndRange<
+        K,
+        Extract<FieldValue<StoreValue<StoreSchema>, K>, IDBValidKey>
+      >;
+    }[StoreOrderKeyPath<StoreSchema>]
+  | Partial<OrderAndRange<undefined, undefined>>;
 
 /**
- * Extracts the union of all filterable/sortable field names
- * contributed by every named index defined on the store.
- *
- * Iterates over every entry in indexes map of store schema,
- * and collects the result of {@link QueryFieldsFromIndex} for each,
- * then unions them together.
- *
- * Resolves to `never` when the store has no indexes.
+ * Object containing order and range bounds with the given types.
  */
-export type QueryFieldsFromIndexes<StoreSchema extends AnyStoreSchema> =
-  StoreSchema["indexes"] extends object
+export interface OrderAndRange<
+  KeyPath extends string | undefined,
+  Value extends IDBValidKey | undefined,
+> {
+  /**
+   * Key path used to sort the query results.
+   *
+   * When omitted, the default order based on the primary key is used.
+   */
+  readonly orderBy: KeyPath;
+  /**
+   * The lower bound of the range. Omit for an unbounded lower end.
+   */
+  readonly lower?: Value | undefined;
+  /**
+   * The upper bound of the range. Omit for an unbounded upper end.
+   */
+  readonly upper?: Value | undefined;
+  /**
+   * When `true`, the lower bound is excluded from the range (open/exclusive).
+   * Defaults to `false` (inclusive).
+   */
+  readonly lowerOpen?: boolean | undefined;
+  /**
+   * When `true`, the upper bound is excluded from the range (open/exclusive).
+   * Defaults to `false` (inclusive).
+   */
+  readonly upperOpen?: boolean | undefined;
+}
+
+/**
+ * Valid order keys for a given store, either the primary key or a sortable indexed key.
+ */
+export type StoreOrderKeyPath<StoreSchema extends AnyStoreSchema> =
+  | StoreSchema["primaryKeyPath"]
+  | StoreSortableKeyPaths<StoreSchema>;
+
+/**
+ * Infers the indexed key paths from a store schema.
+ */
+export type StoreIndexedKeyPaths<StoreSchema extends AnyStoreSchema> =
+  StoreSchema["indexedKeyPaths"] extends object ? keyof StoreSchema["indexedKeyPaths"] : never;
+
+/**
+ * Infers the sortable indexed key paths from a store schema.
+ */
+export type StoreSortableKeyPaths<StoreSchema extends AnyStoreSchema> =
+  StoreSchema["indexedKeyPaths"] extends object
     ? {
-        [I in keyof StoreSchema["indexes"]]: QueryFieldsFromIndex<StoreSchema["indexes"][I]>;
-      }[keyof StoreSchema["indexes"]]
+        [K in keyof StoreSchema["indexedKeyPaths"]]: StoreSchema["indexedKeyPaths"][K]["sortable"] extends true
+          ? K
+          : never;
+      }[keyof StoreSchema["indexedKeyPaths"] & string]
     : never;
-
-/**
- * Extracts the filterable/sortable field names contributed by a single index.
- *
- * - For a composite index key path (array of strings)
- *   this is the union of all its components.
- * - For a simple index key path this is that single string.
- */
-export type QueryFieldsFromIndex<IndexSchema extends AnyIndexSchema> =
-  IndexSchema["keyPath"] extends readonly string[]
-    ? IndexSchema["keyPath"][number] & string
-    : IndexSchema["keyPath"] extends string
-      ? IndexSchema["keyPath"] & string
-      : never;
-
-/**
- * Infers possible sort orders for a query.
- *
- * Can be either a single {@link QueryOrderField} or an array of them.
- *
- * Fields are applied left-to-right as tie-breakers,
- * mirroring the way IndexedDB composite keys work.
- */
-export type QueryOrder<StoreSchema extends AnyStoreSchema> =
-  | QueryOrderField<StoreSchema>
-  | readonly QueryOrderField<StoreSchema>[];
-
-/**
- * Infers a single field path that may be used in an `orderBy` clause.
- *
- * That is, the union of every field that comes from the store's primary key ({@link QueryFieldsFromStore})
- * and every field that comes from any of the store's named indexes ({@link QueryFieldsFromIndexes}).
- */
-export type QueryOrderField<StoreSchema extends AnyStoreSchema> =
-  | QueryFieldsFromStore<StoreSchema>
-  | QueryFieldsFromIndexes<StoreSchema>;

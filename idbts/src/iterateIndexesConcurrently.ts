@@ -68,7 +68,7 @@ export async function* iterateIndexesConcurrently<T>(
   primaryKeyRanges: IDBKeyRange | readonly (IDBKeyRange | undefined)[] | undefined,
   options: CursorIterationOptions,
 ): AsyncGenerator<T, undefined, undefined> {
-  const { direction, limit = Infinity } = options;
+  const { limit = Infinity, reverse = false } = options;
 
   // Create a cursor for every filter.
   let cursors = await Promise.all(
@@ -78,7 +78,7 @@ export async function* iterateIndexesConcurrently<T>(
       const range = Array.isArray(value)
         ? IDBKeyRange.bound(value, [...value, getMaxKey()])
         : IDBKeyRange.only(value);
-      return idbReqToPromise(index.openCursor(range, direction));
+      return idbReqToPromise(index.openCursor(range, reverse ? "prev" : "next"));
     }),
   );
 
@@ -89,7 +89,7 @@ export async function* iterateIndexesConcurrently<T>(
       cursors.map(async (cursor) => {
         // First key part is already constrained by cursor's range
         const ranges = [undefined, ...(postfixKeyRanges ?? [])];
-        return skipCursorOverRanges(cursor, ranges, primaryKeyRanges, direction === "prev");
+        return skipCursorOverRanges(cursor, ranges, primaryKeyRanges, reverse);
       }),
     );
 
@@ -108,7 +108,7 @@ export async function* iterateIndexesConcurrently<T>(
     // Find out the largest postfix of all current items.
     const furthestPostfix = postfixes.reduce((a, b) => {
       let order = indexedDB.cmp(a, b);
-      if (direction === "prev") order = -order;
+      if (reverse) order = -order;
       return order > 0 ? a : b;
     });
 

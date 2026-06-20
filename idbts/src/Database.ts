@@ -1,6 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { idbReqToPromise } from "./idbReqToPromise.ts";
-import { getKeyPathValue, type AnyKeyPath, type KeyPathValue } from "./KeyPath.ts";
+import { getKeyPathValue, type KeyPathValue } from "./KeyPath.ts";
 import { sendStoreChanges, type StoreChange } from "./storeChangesChannel.ts";
 
 /**
@@ -21,43 +21,48 @@ export interface AnyStoreSchema {
    * If you don't use one, you can create a no-op schema with `schema<T>()`,
    * which doesn't do any validation but still provides type safety.
    */
-  readonly value: StandardSchemaV1<object, object>;
+  readonly itemSchema: StandardSchemaV1<object, object>;
 
   /**
-   * The primary key field of the store.
-   * May be a dot-separated path (e.g. `foo.bar`) or an array of such paths.
+   * The primary key path of the store.
+   * Value at this path must uniquely identify each item in the store.
    *
-   * Used to infer the type of the primary key based on the store value.
+   * May be a dot-separated path to target a nested property.
    */
-  readonly keyPath: AnyKeyPath;
+  readonly primaryKeyPath: string;
 
   /**
-   * The schemas of the indexes.
+   * An object which maps key path strings to their schemas.
+   * The schemas describe indexes created for each key path.
    *
-   * This is a map of index names to their schemas.
+   * Keys may be dot-separated paths to target nested properties.
    */
-  readonly indexes?: Record<string, AnyIndexSchema> | undefined;
+  readonly indexedKeyPaths?: Record<string, AnyIndexSchema> | undefined;
 }
 
 /**
- * A schema for an index of a store.
+ * A schema for an indexed key path of a store.
+ * It describes how an index is created for a given key path.
  */
 export interface AnyIndexSchema {
   /**
-   * The key field of the index.
-   * May be a dot-separated path (e.g. `foo.bar`) or an array of such paths.
+   * Whether this field can be used for sorting.
    *
-   * Used to infer the type of the index key based on the store value.
-   *
-   * @see {@link KeyPathValue}
+   * Sortable fields create extra composite indexes for every regular+sortable key path pair.
+   * This allows to filter results by one field and sort by another.
    */
-  readonly keyPath: AnyKeyPath;
+  readonly sortable?: boolean | undefined;
 
   /**
-   * Whether the index is multi-entry.
+   * Whether the field is multi-entry.
    *
    * If true and the indexed value is an array,
-   * each value in the array is indexed separately.
+   * then each value in the array is indexed separately.
+   *
+   * Note that multi entry fields can't be sortable.
+   * They also can only use the default (primary key) order,
+   * due to a limitation of the IndexedDB API
+   * (composite multi entry indexes are not allowed).
    */
   readonly multiEntry?: boolean | undefined;
 
@@ -109,7 +114,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
     const tx = this.idb.transaction(storeName, "readonly");
     const store = tx.objectStore(storeName);
     return await idbReqToPromise(
-      store.get(key as IDBValidKey) as IDBRequest<StoreValue<Schema[StoreName]> | undefined>,
+      store.get(key) as IDBRequest<StoreValue<Schema[StoreName]> | undefined>,
     );
   }
 
@@ -311,7 +316,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
     storeName: StoreName,
     value: unknown,
   ): Promise<StoreValue<Schema[StoreName]>> {
-    const validate = this.schema[storeName]!.value["~standard"].validate;
+    const validate = this.schema[storeName]!.itemSchema["~standard"].validate;
     const result = await validate(value);
     if (result.issues != null) throw new SchemaValidationError(result.issues);
     return result.value as StoreValue<Schema[StoreName]>;
@@ -345,8 +350,8 @@ export class SchemaValidationError extends Error {
  * Infer the primary key type of an object store based on its schema.
  */
 export type StorePrimaryKey<Schema extends AnyStoreSchema> = KeyPathValue<
-  StandardSchemaV1.InferOutput<Schema["value"]>,
-  Schema["keyPath"]
+  StandardSchemaV1.InferOutput<Schema["itemSchema"]>,
+  Schema["primaryKeyPath"]
 >;
 
 /**
@@ -354,7 +359,7 @@ export type StorePrimaryKey<Schema extends AnyStoreSchema> = KeyPathValue<
  * This is the type accepted by write operations such as {@link Database.insert} and {@link Database.upsert}.
  */
 export type StoreInputValue<Schema extends AnyStoreSchema> = Readonly<
-  StandardSchemaV1.InferInput<Schema["value"]>
+  StandardSchemaV1.InferInput<Schema["itemSchema"]>
 >;
 
 /**
@@ -362,7 +367,7 @@ export type StoreInputValue<Schema extends AnyStoreSchema> = Readonly<
  * This is the type returned by read operations such as {@link Database.get} and {@link Database.getAll}.
  */
 export type StoreValue<Schema extends AnyStoreSchema> = Readonly<
-  StandardSchemaV1.InferOutput<Schema["value"]>
+  StandardSchemaV1.InferOutput<Schema["itemSchema"]>
 >;
 
 /**
