@@ -27,15 +27,14 @@ export type KeyPathValue<
  * type A = FieldValue<{ a: { b: number } }, "a.b"> // number
  * ```
  */
-export type FieldValue<Value, Path extends string> = Path extends ""
-  ? Value
-  : Value extends NonNullable<unknown>
+export type FieldValue<Value, Path extends string> =
+  Value extends NonNullable<unknown>
     ? Path extends `${infer Prop}.${infer Rest}`
       ? Prop extends keyof Value
         ? FieldValue<Value[Prop], Rest>
         : never
       : Path extends keyof Value
-        ? Value[Path]
+        ? Extract<Value[Path], IDBValidKey>
         : never
     : never;
 

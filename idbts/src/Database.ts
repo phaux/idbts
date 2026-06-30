@@ -28,6 +28,8 @@ export interface AnyStoreSchema {
    * Value at this path must uniquely identify each item in the store.
    *
    * May be a dot-separated path to target a nested property.
+   *
+   * Passed directly to {@link IDBDatabase.createObjectStore}.
    */
   readonly primaryKeyPath: string;
 
@@ -63,6 +65,8 @@ export interface AnyIndexSchema {
    * They also can only use the default (primary key) order,
    * due to a limitation of the IndexedDB API
    * (composite multi entry indexes are not allowed).
+   *
+   * Passed directly to {@link IDBObjectStore.createIndex}.
    */
   readonly multiEntry?: boolean | undefined;
 
@@ -70,6 +74,8 @@ export interface AnyIndexSchema {
    * Whether the index is unique.
    *
    * If true, the index will only allow unique values.
+   *
+   * Passed directly to {@link IDBObjectStore.createIndex}.
    */
   readonly unique?: boolean | undefined;
 }

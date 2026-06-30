@@ -112,9 +112,9 @@ export async function openDB<const T extends AnyDatabaseSchema>(
             : db.createObjectStore(storeName, { keyPath: primaryKeyPath });
           // Create new indexes.
           const wantedIndexNames = new Set<string>();
-          const sortableKeyPaths = Object.fromEntries(
-            Object.entries(indexedKeyPaths).filter(([, keySchema]) => keySchema.sortable ?? false),
-          );
+          const sortableKeyPaths = Object.entries(indexedKeyPaths)
+            .filter(([, keySchema]) => keySchema.sortable ?? false)
+            .map(([keyPath]) => keyPath);
           for (const [keyPath, keySchema] of Object.entries(indexedKeyPaths)) {
             const { multiEntry = false, unique = false } = keySchema;
             wantedIndexNames.add(keyPath);
@@ -124,7 +124,7 @@ export async function openDB<const T extends AnyDatabaseSchema>(
             // Create composite indexes for combinations of this key path with every sortable key path.
             // Multi entry indexes can't be composite (IndexedDB limitation).
             if (!multiEntry) {
-              for (const sortedKeyPath of Object.keys(sortableKeyPaths)) {
+              for (const sortedKeyPath of sortableKeyPaths) {
                 if (sortedKeyPath === keyPath) continue;
                 const indexName = `${keyPath}+${sortedKeyPath}`;
                 wantedIndexNames.add(indexName);

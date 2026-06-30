@@ -8,7 +8,7 @@
  *
  * Using a plain object also allows it to be JSON-stringified.
  */
-export interface KeyRangeObject<out T extends IDBValidKey> {
+export interface KeyRangeObject<out T extends IDBValidKey | undefined> {
   /**
    * The lower bound of the range. Omit for an unbounded lower end.
    */

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import "./test.env.ts";
 
 import { expectTypeOf } from "expect-type";
@@ -128,9 +127,10 @@ await suite("queryDB", { concurrency: true }, async () => {
     await rejects(
       async () =>
         queryDB(db, "people", {
-          orderBy: "level" as any,
+          // @ts-expect-error -- non-existent field
+          orderBy: "level",
         }),
-      { message: "Missing index on level." },
+      { name: "NotFoundError" },
     );
   });
 
@@ -200,6 +200,26 @@ await suite("queryDB", { concurrency: true }, async () => {
     );
   });
 
+  await test("get by key equality and field range", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        where: { id: 7 },
+        orderBy: "points",
+        upper: 1000,
+      }),
+      [data[3]],
+    );
+    deepEqual(
+      await queryDB(db, "people", {
+        where: { id: 9 },
+        orderBy: "name.last",
+        reverse: true,
+        lower: "Z",
+      }),
+      [],
+    );
+  });
+
   await test("get by key equality and field equality", async () => {
     deepEqual(
       await queryDB(db, "people", {
@@ -221,6 +241,26 @@ await suite("queryDB", { concurrency: true }, async () => {
     );
   });
 
+  await test("get by key equality and key range", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        where: { id: 5 },
+        orderBy: "id",
+        lower: 3,
+        upper: 7,
+      }),
+      [data[2]],
+    );
+    deepEqual(
+      await queryDB(db, "people", {
+        where: { id: 9 },
+        lower: 3,
+        upper: 7,
+      }),
+      [],
+    );
+  });
+
   await test("get by key range", async () => {
     deepEqual(
       await queryDB(db, "people", {
@@ -232,7 +272,6 @@ await suite("queryDB", { concurrency: true }, async () => {
     );
     deepEqual(
       await queryDB(db, "people", {
-        orderBy: "id",
         upper: 5,
       }),
       [data[0], data[1], data[2]],
@@ -281,13 +320,57 @@ await suite("queryDB", { concurrency: true }, async () => {
   await test("get by key range with limit reversed", async () => {
     deepEqual(
       await queryDB(db, "people", {
-        orderBy: "id",
         lower: 4,
         upper: 16,
         limit: 2,
         reverse: true,
       }),
       [data[7], data[6]],
+    );
+  });
+
+  await test("get by key range and field equality", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        where: { "name.first": "Piotr" },
+        orderBy: "id",
+        upper: 15,
+      }),
+      [data[6]],
+    );
+    deepEqual(
+      await queryDB(db, "people", {
+        where: { "name.last": "Nowak" },
+        orderBy: "id",
+        lower: 17,
+        lowerOpen: true,
+      }),
+      [data[12], data[14]],
+    );
+  });
+
+  await test("get by key range and multi field equality", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.first": "Maciej",
+          "name.last": "Nowak",
+        },
+        orderBy: "points",
+        upper: 1000,
+      }),
+      [data[12]],
+    );
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.first": "Maciej",
+          "name.last": "Nowak",
+        },
+        orderBy: "points",
+        lower: 1000,
+      }),
+      [data[2]],
     );
   });
 
@@ -326,13 +409,36 @@ await suite("queryDB", { concurrency: true }, async () => {
     );
   });
 
-  await test("get by field equality with non-matching order", { skip: true }, async () => {
+  await test("get by field equality with non-matching order", async () => {
     deepEqual(
       await queryDB(db, "people", {
         where: { "name.last": "Nowak" },
         orderBy: "points",
       }),
-      [data[0], data[2], data[12], data[14], data[8]],
+      [data[12], data[2], data[14], data[0], data[8]],
+    );
+  });
+
+  await test("get by field equality with matching range", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        where: { "name.last": "Nowak" },
+        orderBy: "name.last",
+        lower: "Z",
+      }),
+      [],
+    );
+  });
+
+  await test("get by field equality with non-matching range", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        where: { "name.last": "Nowak" },
+        orderBy: "points",
+        upper: 1000,
+        upperOpen: true,
+      }),
+      [data[12]],
     );
   });
 
@@ -350,9 +456,10 @@ await suite("queryDB", { concurrency: true }, async () => {
     await rejects(
       async () =>
         queryDB(db, "people", {
-          where: { level: 5 } as any,
+          // @ts-expect-error -- non-existent field
+          where: { level: 5 },
         }),
-      { message: "Missing index on level." },
+      { name: "NotFoundError" },
     );
   });
 
@@ -361,9 +468,10 @@ await suite("queryDB", { concurrency: true }, async () => {
       async () =>
         queryDB(db, "people", {
           where: { age: 30 },
-          orderBy: "name.first" as any,
+          // @ts-expect-error -- non sortable field
+          orderBy: "name.first",
         }),
-      { message: "Missing index on age+name.first." },
+      { name: "NotFoundError" },
     );
   });
 
@@ -386,16 +494,39 @@ await suite("queryDB", { concurrency: true }, async () => {
     );
   });
 
-  await test("get by undefined field", async () => {
+  await test("get by field range and key", async () => {
     deepEqual(
       await queryDB(db, "people", {
-        where: { "name.first": undefined as any },
+        orderBy: "name.last",
+        lower: "P",
+        upper: "S\uffff",
+        where: { id: 9 },
       }),
-      data,
+      [data[4]],
     );
     deepEqual(
       await queryDB(db, "people", {
-        where: { "name.last": undefined as any },
+        orderBy: "name.last",
+        lower: "P",
+        lowerOpen: true,
+        where: { id: 0 },
+      }),
+      [],
+    );
+  });
+
+  await test("get by undefined field", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        // @ts-expect-error -- undefined is not allowed
+        where: { "name.first": undefined },
+      }),
+      data, // undefined is ignored
+    );
+    deepEqual(
+      await queryDB(db, "people", {
+        // @ts-expect-error -- undefined is not allowed
+        where: { "name.last": undefined },
       }),
       data,
     );
@@ -442,17 +573,19 @@ await suite("queryDB", { concurrency: true }, async () => {
     await rejects(
       async () =>
         queryDB(db, "people", {
-          orderBy: "level" as any,
+          // @ts-expect-error -- non-existent field
+          orderBy: "level",
           lower: 3,
         }),
-      { message: "Missing index on level." },
+      { name: "NotFoundError" },
     );
   });
 
   await test("get by invalid undefined field", async () => {
     deepEqual(
       await queryDB(db, "people", {
-        where: { level: undefined } as any,
+        // @ts-expect-error -- undefined is not allowed + non-existent field
+        where: { level: undefined },
       }),
       data,
     );
@@ -489,6 +622,31 @@ await suite("queryDB", { concurrency: true }, async () => {
     );
   });
 
+  await test("get by field and key equality", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.first": "Maciej",
+          id: 5,
+        },
+      }),
+      [data[2]],
+    );
+  });
+
+  await test("get by multi field and key equality, ", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.first": "Maciej",
+          "name.last": "Nowak",
+          id: 25,
+        },
+      }),
+      [data[12]],
+    );
+  });
+
   await test("get by multi field equality reversed", async () => {
     deepEqual(
       await queryDB(db, "people", {
@@ -521,14 +679,15 @@ await suite("queryDB", { concurrency: true }, async () => {
         queryDB(db, "people", {
           where: {
             "name.first": "Maciej",
+            // @ts-expect-error -- non-existent field
             level: 1,
-          } as any,
+          },
         }),
-      { message: "Missing index on level." },
+      { name: "NotFoundError" },
     );
   });
 
-  await test("get by multi field equality with order", async () => {
+  await test("get by multi field equality with non-matching order", async () => {
     deepEqual(
       await queryDB(db, "people", {
         where: {
@@ -539,6 +698,9 @@ await suite("queryDB", { concurrency: true }, async () => {
       }),
       [data[12], data[2]],
     );
+  });
+
+  await test("get by multi field equality with matching order", async () => {
     deepEqual(
       await queryDB(db, "people", {
         where: {
@@ -573,9 +735,75 @@ await suite("queryDB", { concurrency: true }, async () => {
             "name.first": "Maciej",
             "name.last": "Nowak",
           },
-          orderBy: "level" as any,
+          // @ts-expect-error -- non-existent field
+          orderBy: "level",
         }),
-      { message: "Missing index on name.first+level, name.last+level." },
+      { name: "NotFoundError" },
+    );
+  });
+
+  await test("get by field and key equality with non-matching order", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.first": "Maciej",
+          id: 5,
+        },
+        orderBy: "points",
+      }),
+      [data[2]],
+    );
+  });
+
+  await test("get by multi field and key equality with non-matching order", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.first": "Maciej",
+          "name.last": "Nowak",
+          id: 25,
+        },
+        orderBy: "points",
+      }),
+      [data[12]],
+    );
+  });
+
+  await test("get by field and key equality with matching order", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.first": "Maciej",
+          id: 5,
+        },
+        orderBy: "name.last",
+      }),
+      [data[2]],
+    );
+  });
+
+  await test("get by multi field and key equality with matching order", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.first": "Maciej",
+          "name.last": "Nowak",
+          id: 25,
+        },
+        orderBy: "name.last",
+      }),
+      [data[12]],
+    );
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.first": "Nikt",
+          "name.last": "Nowak",
+          id: 25,
+        },
+        orderBy: "name.last",
+      }),
+      [],
     );
   });
 
@@ -707,23 +935,25 @@ await suite("queryDB", { concurrency: true }, async () => {
           where: {
             "name.last": "Nowak",
           },
-          orderBy: "level" as any,
+          // @ts-expect-error -- non-existent field
+          orderBy: "level",
           lower: 0,
           upper: 100,
         }),
-      { message: "Missing index on name.last+level." },
+      { name: "NotFoundError" },
     );
     await rejects(
       async () =>
         queryDB(db, "people", {
           where: {
+            // @ts-expect-error -- non-existent field
             level: 1,
-          } as any,
+          },
           orderBy: "points",
           lower: 0,
           upper: 1000,
         }),
-      { message: "Missing index on level+points." },
+      { name: "NotFoundError" },
     );
   });
 
@@ -735,10 +965,142 @@ await suite("queryDB", { concurrency: true }, async () => {
             "name.first": "Maciej",
             "name.last": "Nowak",
           },
-          orderBy: "level" as any,
+          // @ts-expect-error -- non-existent field
+          orderBy: "level",
           lower: 0,
         }),
-      { message: "Missing index on name.first+level, name.last+level." },
+      { name: "NotFoundError" },
+    );
+  });
+
+  await test("get by field and key equality and non-matching range", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.first": "Maciej",
+          id: 5,
+        },
+        orderBy: "points",
+        lower: 1000,
+      }),
+      [data[2]],
+    );
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.first": "Maciej",
+          id: 5,
+        },
+        orderBy: "points",
+        upper: 1000,
+      }),
+      [],
+    );
+  });
+
+  await test("get by multi field and key equality and non-matching range", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.first": "Maciej",
+          "name.last": "Nowak",
+          id: 25,
+        },
+        orderBy: "points",
+        upper: 1000,
+      }),
+      [data[12]],
+    );
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.first": "Maciej",
+          "name.last": "Nowak",
+          id: 25,
+        },
+        orderBy: "points",
+        lower: 1000,
+      }),
+      [],
+    );
+  });
+
+  await test("get by field and key equality and matching range", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.last": "Nowak",
+          id: 5,
+        },
+        orderBy: "name.last",
+        lower: "F",
+      }),
+      [data[2]],
+    );
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.last": "Nowak",
+          id: 5,
+        },
+        orderBy: "name.last",
+        lower: "X",
+      }),
+      [],
+    );
+  });
+
+  await test("get by multi field and key equality and matching range", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.first": "Maciej",
+          "name.last": "Nowak",
+          id: 25,
+        },
+        orderBy: "name.last",
+        lower: "X",
+      }),
+      [],
+    );
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.first": "Maciej",
+          "name.last": "Nowak",
+          id: 25,
+        },
+        orderBy: "name.last",
+        upper: "X",
+      }),
+      [data[12]],
+    );
+  });
+
+  await test("get by field and key equality and key range", async () => {
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.first": "Maciej",
+          "name.last": "Nowak",
+          id: 5,
+        },
+        orderBy: "id",
+        lower: 5,
+      }),
+      [data[2]],
+    );
+    deepEqual(
+      await queryDB(db, "people", {
+        where: {
+          "name.first": "Maciej",
+          "name.last": "Nowak",
+          id: 25,
+        },
+        orderBy: "id",
+        upper: 5,
+      }),
+      [],
     );
   });
 
