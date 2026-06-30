@@ -1,8 +1,14 @@
-import type { AnyDatabaseSchema, AnyStoreSchema, Database, StoreValue } from "./Database.ts";
+import type {
+  AnyDatabaseSchema,
+  AnyStoreSchema,
+  Database,
+  StoreEntry,
+  StoreKey,
+} from "./Database.ts";
 import { iterateIndexesConcurrently } from "./iterateIndexesConcurrently.ts";
 import { iterateStoreOrIndex, type CursorIterationOptions } from "./iterateStoreOrIndex.ts";
-import type { FieldValue } from "./KeyPath.ts";
-import { toKeyRange, type KeyRangeObject } from "./KeyRange.ts";
+import type { KeyPathValue } from "./KeyPath.ts";
+import { prefixRange, toIDBKeyRange, type KeyRangeObject } from "./KeyRange.ts";
 
 /**
  * Executes a one-shot async query against a database
@@ -37,16 +43,15 @@ export async function queryDB<
   db: Database<Schema>,
   storeName: StoreName,
   options: QueryOptions<Schema[StoreName]>,
-): Promise<StoreValue<Schema[StoreName]>[]> {
-  // Create a no-op transaction to get the primary key path.
-  const tx = db.idb.transaction(storeName, "readonly"),
+): Promise<StoreEntry<Schema[StoreName]>[]> {
+  // Open a no-op transaction to obtain the primary key path.
+  const tx = db.idb.transaction(storeName),
     store = tx.objectStore(storeName),
     // Enforced by openDB to be a string
     primaryKeyPath = store.keyPath as string;
 
   // Extract and normalize the option values.
-  const where: Record<string, IDBValidKey | undefined> = options.where ?? {},
-    filters = Object.entries(where).filter(
+  const where = Object.entries<IDBValidKey | undefined>(options.where ?? {}).filter(
       (entry): entry is [string, IDBValidKey] => entry[1] != null,
     ),
     orderBy = options.orderBy ?? primaryKeyPath,
@@ -54,9 +59,9 @@ export async function queryDB<
     lowerOpen = options.lowerOpen,
     upper = options.upper,
     upperOpen = options.upperOpen,
-    range = toKeyRange({ lower, lowerOpen, upper, upperOpen });
+    range = toIDBKeyRange({ lower, lowerOpen, upper, upperOpen });
 
-  if (filters.length === 0) {
+  if (where.length === 0) {
     if (orderBy === primaryKeyPath) {
       // Query by primary key range.
       return Array.fromAsync(iterateStoreOrIndex(store, range, undefined, options));
@@ -67,8 +72,8 @@ export async function queryDB<
     return Array.fromAsync(iterateStoreOrIndex(index, range, undefined, options));
   }
 
-  if (filters.length === 1) {
-    const [field, value] = filters[0]!;
+  if (where.length === 1) {
+    const [field, value] = where[0]!;
 
     if (orderBy === primaryKeyPath) {
       if (field === primaryKeyPath) {
@@ -102,36 +107,40 @@ export async function queryDB<
     // Query by composite index value and range.
     const index = store.index(`${field}+${orderBy}`);
     return Array.fromAsync(
-      iterateStoreOrIndex(index, [IDBKeyRange.only(value), range], undefined, options),
+      iterateStoreOrIndex(index, prefixRange(value, range), undefined, options),
     );
   }
 
-  const orderFilter = filters.find(([field]) => field === orderBy);
+  const orderFilter = where.find(([field]) => field === orderBy);
   if (orderFilter) {
     if (range && !range.includes(orderFilter[1])) return [];
 
     // Query by multiple primary key/index values.
-    const indexValues = filters.map(
-      ([field, value]) => [field === primaryKeyPath ? store : store.index(field), value] as const,
+    const indexValues = where.map(
+      ([field, value]) =>
+        [field === primaryKeyPath ? store : store.index(field), IDBKeyRange.only(value)] as const,
     );
-    return Array.fromAsync(iterateIndexesConcurrently(indexValues, undefined, undefined, options));
+    return Array.fromAsync(iterateIndexesConcurrently(indexValues, undefined, options));
   }
 
   if (orderBy === primaryKeyPath) {
     // Query by multiple index values and primary key range.
-    const indexValues = filters.map(([field, value]) => [store.index(field), value] as const);
-    return Array.fromAsync(iterateIndexesConcurrently(indexValues, undefined, range, options));
+    const indexValues = where.map(
+      ([field, value]) => [store.index(field), IDBKeyRange.only(value)] as const,
+    );
+    return Array.fromAsync(iterateIndexesConcurrently(indexValues, range, options));
   }
 
   // Query by multiple composite index values and range.
-  const keyFilter = filters.find(([field]) => field === primaryKeyPath);
-  const indexValues = filters
+  const keyFilter = where.find(([field]) => field === primaryKeyPath);
+  const indexValues = where
     .filter(([field]) => field !== primaryKeyPath)
-    .map(([field, value]) => [store.index(`${field}+${orderBy}`), [value] as IDBValidKey] as const);
+    .map(
+      ([field, value]) => [store.index(`${field}+${orderBy}`), prefixRange(value, range)] as const,
+    );
   return Array.fromAsync(
     iterateIndexesConcurrently(
       indexValues,
-      [range],
       keyFilter ? IDBKeyRange.only(keyFilter[1]) : undefined,
       options,
     ),
@@ -143,30 +152,28 @@ export async function queryDB<
  *
  * Accepted by {@link queryDB} and others.
  */
-export type QueryOptions<StoreSchema extends AnyStoreSchema> = QueryOptionsForStore<StoreSchema> &
+export type QueryOptions<StoreSchema extends AnyStoreSchema> = QueryPredicates<StoreSchema> &
   CursorIterationOptions;
 
 /**
- * Query options specific to a store.
+ * Query predicates specific to a store.
  *
  * Infers options specific to primary and every sortable key path in the store schema.
  */
-export type QueryOptionsForStore<StoreSchema extends AnyStoreSchema> =
+export type QueryPredicates<StoreSchema extends AnyStoreSchema> =
   | {
-      [K in StoreSortableKeyPaths<StoreSchema>]: QueryOptionsForStoreKeyPath<StoreSchema, K>;
+      [K in StoreSortableKeyPaths<StoreSchema>]: QueryPredicatesForKeyPath<StoreSchema, K>;
     }[StoreSortableKeyPaths<StoreSchema>]
-  | Partial<QueryOptionsForStoreKeyPath<StoreSchema, StoreSchema["primaryKeyPath"] | undefined>>;
+  | Partial<QueryPredicatesForKeyPath<StoreSchema, StoreSchema["primaryKeyPath"] | undefined>>;
 
 /**
- * Query options specific to a given store schema and sort key path.
+ * Query predicates specific to a given store schema and sort key path.
  */
-export interface QueryOptionsForStoreKeyPath<
+export interface QueryPredicatesForKeyPath<
   StoreSchema extends AnyStoreSchema,
   OrderKeyPath extends string | undefined,
 > extends KeyRangeObject<
-  OrderKeyPath extends NonNullable<unknown>
-    ? FieldValue<StoreValue<StoreSchema>, OrderKeyPath>
-    : undefined
+  OrderKeyPath extends NonNullable<unknown> ? StoreKey<StoreSchema, OrderKeyPath> : undefined
 > {
   /**
    * Key path used to sort the query results.
@@ -175,11 +182,12 @@ export interface QueryOptionsForStoreKeyPath<
    */
   readonly orderBy: OrderKeyPath;
   /**
-   * Field equality filter predicates.
+   * Field equality filters. Accepts a map of key path to key value.
    *
-   * Store item must satisfy all of them to be included in the results (AND semantics).
+   * Each entry is tested for equality against the values at the specified key paths.
+   * An entry must satisfy all of them to be included in the results (AND semantics).
    *
-   * Omit entirely to return all records.
+   * Omit entirely to get all entries.
    */
   readonly where?: QueryFilters<StoreSchema> | undefined;
 }
@@ -189,8 +197,8 @@ export interface QueryOptionsForStoreKeyPath<
  * Used to filter query results.
  */
 export type QueryFilters<StoreSchema extends AnyStoreSchema> = {
-  readonly [K in StoreSchema["primaryKeyPath"] | StoreIndexedKeyPaths<StoreSchema>]?: FieldValue<
-    StoreValue<StoreSchema>,
+  readonly [K in StoreSchema["primaryKeyPath"] | StoreIndexedKeyPaths<StoreSchema>]?: KeyPathValue<
+    StoreEntry<StoreSchema>,
     K & string
   >;
 };

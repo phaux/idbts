@@ -1,4 +1,4 @@
-import type { AnyDatabaseSchema, AnyStoreSchema, Database, StoreValue } from "./Database.ts";
+import type { AnyDatabaseSchema, AnyStoreSchema, Database, StoreEntry } from "./Database.ts";
 
 /**
  * Broadcasts a batch of store changes over a {@link BroadcastChannel}
@@ -53,12 +53,12 @@ export interface StoreChange<StoreSchema extends AnyStoreSchema> {
    * The new value of the record after the mutation,
    * or `undefined` for deletions.
    */
-  newValue?: StoreValue<StoreSchema> | undefined;
+  newValue?: StoreEntry<StoreSchema> | undefined;
   /**
    * The previous value of the record before the mutation,
    * or `undefined` for insertions.
    */
-  oldValue?: StoreValue<StoreSchema> | undefined;
+  oldValue?: StoreEntry<StoreSchema> | undefined;
 }
 
 /**

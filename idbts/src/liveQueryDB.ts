@@ -1,6 +1,6 @@
-import type { AnyDatabaseSchema, Database, StoreValue } from "./Database.ts";
-import { getFieldValue, getKeyPathValue } from "./KeyPath.ts";
-import { toKeyRange, type MaybeKeyRange } from "./KeyRange.ts";
+import type { AnyDatabaseSchema, Database, StoreEntry } from "./Database.ts";
+import { getKeyPathValue } from "./KeyPath.ts";
+import { toIDBKeyRange } from "./KeyRange.ts";
 import { MiniObservable } from "./MiniObservable.ts";
 import { queryDB, type QueryOptions } from "./queryDB.ts";
 import { getStoreChangesChannel, type StoreChange } from "./storeChangesChannel.ts";
@@ -21,11 +21,20 @@ import { getStoreChangesChannel, type StoreChange } from "./storeChangesChannel.
  *
  * ```ts
  * const ac = new AbortController();
- * const liveUsers = liveQueryDB(db, "users", { orderBy: "name" });
+ *
+ * const liveUsers = liveQueryDB(db, "users", {
+ *   orderBy: "name",
+ * });
+ *
  * liveUsers.subscribe({
- *   next: (users) => console.log("Current users:", users),
- *   error: (err) => console.error("Query error:", err),
+ *   next: (users) => {
+ *     console.log("Users:", users);
+ *   },
+ *   error: (err) => {
+ *     console.error("Error:", err);
+ *   },
  * }, { signal: ac.signal });
+ *
  * // Later, to clean up:
  * ac.abort();
  * ```
@@ -37,11 +46,14 @@ export function liveQueryDB<
   db: Database<Schema>,
   storeName: StoreName,
   options: QueryOptions<Schema[StoreName]>,
-): MiniObservable<StoreValue<Schema[StoreName]>[]> {
+): MiniObservable<StoreEntry<Schema[StoreName]>[]> {
   return new MiniObservable((subscriber) => {
+    // Open a no-op transaction to obtain the primary key path.
+    const primaryKeyPath = db.idb.transaction(storeName).objectStore(storeName).keyPath as string;
+
     const {
       where = {},
-      orderBy,
+      orderBy = primaryKeyPath,
       lower,
       upper,
       lowerOpen,
@@ -50,10 +62,7 @@ export function liveQueryDB<
       limit = Infinity,
     } = options;
 
-    if (orderBy != null && (lower != null || upper != null)) {
-      const orderRange = toKeyRange({ lower, lowerOpen, upper, upperOpen });
-      (where as Record<string, IDBKeyRange | undefined>)[orderBy] ??= orderRange;
-    }
+    const range = toIDBKeyRange({ lower, lowerOpen, upper, upperOpen });
 
     // Bail out immediately if the subscriber was already cancelled.
     if (subscriber.signal?.aborted ?? false) return;
@@ -62,7 +71,7 @@ export function liveQueryDB<
      * `currentResults` is undefined until the initial query resolves.
      * This flag is used by the message handler to decide whether to buffer or apply.
      */
-    let currentResults: StoreValue<Schema[StoreName]>[] | undefined;
+    let currentResults: StoreEntry<Schema[StoreName]>[] | undefined;
 
     /**
      * Changes that arrive while the initial query is in flight are stored here
@@ -108,13 +117,6 @@ export function liveQueryDB<
     const controller = new AbortController();
     subscriber.signal?.addEventListener("abort", () => controller.abort());
     controller.signal.addEventListener("abort", () => changesChannel.close());
-
-    // Open a no-op transaction to obtain the primary key path.
-    const primaryKeyPath = db.idb
-      .transaction(storeName, "readonly")
-      .objectStore(storeName).keyPath!;
-
-    const orderFields = orderBy != null ? [orderBy] : [];
 
     // Initial query.
     queryDB(db, storeName, options).then(
@@ -192,26 +194,16 @@ export function liveQueryDB<
         }
         if (change.newValue) {
           const key = getKeyPathValue(change.newValue, primaryKeyPath);
-          if (queryMatches(change.newValue, where)) {
+          if (queryMatches(change.newValue, orderBy, range, where)) {
             // Evict any existing entry with the same primary key (upsert semantics),
             // append the new value, and re-sort.
             const newResults = currentResults!
               .filter((item) => indexedDB.cmp(getKeyPathValue(item, primaryKeyPath), key) !== 0)
               .concat([change.newValue])
               .sort((a, b) => {
-                for (const field of orderFields) {
-                  const aValue = getFieldValue(a, field);
-                  const bValue = getFieldValue(b, field);
-                  let order = indexedDB.cmp(aValue, bValue);
-                  if (order !== 0) {
-                    if (reverse) order = -order;
-                    return order;
-                  }
-                }
-                // Fall back to primary-key order as a stable tie-breaker.
-                const aKey = getKeyPathValue(a, primaryKeyPath);
-                const bKey = getKeyPathValue(b, primaryKeyPath);
-                let order = indexedDB.cmp(aKey, bKey);
+                const aValue = getKeyPathValue(a, orderBy);
+                const bValue = getKeyPathValue(b, orderBy);
+                let order = indexedDB.cmp(aValue, bValue);
                 if (reverse) order = -order;
                 return order;
               })
@@ -234,21 +226,22 @@ export function liveQueryDB<
 }
 
 /**
- * Checks whether a store record satisfies all `filters`.
- *
- * Each entry in `filters` is converted to an `IDBKeyRange` via {@link toKeyRange}.
- * Entries that produce a `null` range are skipped — they impose no constraint.
+ * Checks whether a store entry satisfies all query conditions.
  */
 function queryMatches(
-  item: object,
-  filters: Record<string, MaybeKeyRange<IDBValidKey> | undefined>,
+  entry: object,
+  rangeKeyPath: string | undefined,
+  range: IDBKeyRange | undefined,
+  filters: Record<string, IDBValidKey | undefined>,
 ): boolean {
-  for (const [key, maybeRange] of Object.entries(filters)) {
-    const range = toKeyRange(maybeRange);
-    if (!range) continue;
-    if (!range.includes(getFieldValue(item, key))) {
-      return false;
-    }
+  if (rangeKeyPath != null && range != null) {
+    const entryValue = getKeyPathValue(entry, rangeKeyPath);
+    if (entryValue == null || !range.includes(entryValue)) return false;
+  }
+  for (const [keyPath, filterValue] of Object.entries(filters)) {
+    if (filterValue == null) continue;
+    const range = IDBKeyRange.only(filterValue);
+    if (!range.includes(getKeyPathValue(entry, keyPath))) return false;
   }
   return true;
 }

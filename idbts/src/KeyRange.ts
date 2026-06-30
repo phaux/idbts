@@ -5,8 +5,6 @@
  *
  * This type is accepted anywhere a key range is needed
  * so callers can avoid constructing a native `IDBKeyRange` manually.
- *
- * Using a plain object also allows it to be JSON-stringified.
  */
 export interface KeyRangeObject<out T extends IDBValidKey | undefined> {
   /**
@@ -30,54 +28,44 @@ export interface KeyRangeObject<out T extends IDBValidKey | undefined> {
 }
 
 /**
- * A flexible key range descriptor:
- * either a {@link KeyRangeObject} with explicit bounds,
- * or a single key value treated as an exact-equality range
- * (i.e. `lower === upper`, both inclusive).
+ * Converts a plain object representing a range into a native {@link IDBKeyRange}.
+ *
+ * Returns `undefined` when the input range is undefined or unbounded.
  */
-export type MaybeKeyRange<T extends IDBValidKey> = KeyRangeObject<T> | T;
-
-/**
- * Converts a {@link MaybeKeyRange} value into a native {@link IDBKeyRange},
- * or returns `undefined` when the input is `undefined`
- * (representing an unbounded range / no filter).
- */
-export function toKeyRange(
-  maybeRange: MaybeKeyRange<IDBValidKey> | undefined,
+export function toIDBKeyRange(
+  range: KeyRangeObject<IDBValidKey> | undefined,
 ): IDBKeyRange | undefined {
-  const range = toKeyRangeObject(maybeRange);
-  if (range.lower != null && range.upper != null) {
+  if (range?.lower != null && range.upper != null) {
     return IDBKeyRange.bound(range.lower, range.upper, range.lowerOpen, range.upperOpen);
-  }
-  if (range.lower != null) {
+  } else if (range?.lower != null) {
     return IDBKeyRange.lowerBound(range.lower, range.lowerOpen);
-  }
-  if (range.upper != null) {
+  } else if (range?.upper != null) {
     return IDBKeyRange.upperBound(range.upper, range.upperOpen);
   }
   return undefined;
 }
 
 /**
- * Normalises a {@link MaybeKeyRange} into a {@link KeyRangeObject}.
+ * Given a prefix key value and a postfix key range,
+ * returns a range over a composite key where:
+ * - the first component matches the given prefix value,
+ * - and the second component is within the given postfix range.
  *
- * Primitive keys, arrays, `Date`s, `ArrayBuffer`s, and typed-array views
- * are treated as exact-equality ranges by setting both `lower` and `upper` to the same value.
- * Plain objects that are already {@link KeyRangeObject}s are returned as-is.
+ * For example, given prefix value `"foo"` and a postfix range from `1` to `10`,
+ * the result is a range from `["foo", 1]` to `["foo", 10]`
+ *
+ * Undefined postfix range means the second component is not constrained.
  */
-export function toKeyRangeObject(
-  maybeRange: MaybeKeyRange<IDBValidKey> | undefined,
-): KeyRangeObject<IDBValidKey> {
-  if (
-    typeof maybeRange != "object" ||
-    Array.isArray(maybeRange) ||
-    maybeRange instanceof Date ||
-    ArrayBuffer.isView(maybeRange) ||
-    maybeRange instanceof ArrayBuffer
-  ) {
-    return { lower: maybeRange, upper: maybeRange };
-  }
-  return maybeRange;
+export function prefixRange(
+  prefix: IDBValidKey,
+  postfixRange: KeyRangeObject<IDBValidKey> | undefined,
+): IDBKeyRange {
+  return IDBKeyRange.bound(
+    [prefix, ...(postfixRange?.lower != null ? [postfixRange.lower] : [])],
+    [prefix, postfixRange?.upper ?? getMaxKey()],
+    postfixRange?.lowerOpen,
+    postfixRange?.upperOpen,
+  );
 }
 
 /** Returns the maximum possible key value, which is greater than all other keys. */
@@ -86,17 +74,3 @@ export const getMaxKey = (): [[]] => [[]]; // Not actually the largest possible 
 /** The minimum possible key value, which is less than all other keys. */
 // eslint-disable-next-line @typescript-eslint/no-inferrable-types -- needed for isolatedDeclarations
 export const minKey: number = -Infinity;
-
-/**
- * Returns true if the given range represents a single value
- * (i.e. lower and upper bounds are equal and not open/exclusive).
- */
-export function isSingleValueRange(range: KeyRangeObject<IDBValidKey> | undefined): boolean {
-  return (
-    range?.lower != null &&
-    range.upper != null &&
-    indexedDB.cmp(range.lower, range.upper) === 0 &&
-    !(range.lowerOpen ?? false) &&
-    !(range.upperOpen ?? false)
-  );
-}

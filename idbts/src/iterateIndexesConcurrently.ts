@@ -1,7 +1,6 @@
+import { continuePrimaryKeyRange } from "./continuePrimaryKeyRange.ts";
 import { idbReqToPromise } from "./idbReqToPromise.ts";
 import type { CursorIterationOptions } from "./iterateStoreOrIndex.ts";
-import { getMaxKey } from "./KeyRange.ts";
-import { skipCursorOverRanges } from "./skipCursorOverRanges.ts";
 
 /**
  * Performs a zig-zag merge join algorithm to iterate the given indexes concurrently.
@@ -14,8 +13,8 @@ import { skipCursorOverRanges } from "./skipCursorOverRanges.ts";
  * ```js
  * const results = await Array.fromAsync(
  *   iterateIndexesConcurrently([
- *     [store.index("byUser"), "kazik"],
- *     [store.index("byTag"), "photography"],
+ *     [store.index("byUser"), IDBKeyRange.only("kazik")],
+ *     [store.index("byTag"), IDBKeyRange.only("photography")],
  *   ])
  * );
  * ```
@@ -34,75 +33,60 @@ import { skipCursorOverRanges } from "./skipCursorOverRanges.ts";
  * ```js
  * const results = await Array.fromAsync(
  *   iterateIndexesConcurrently([
- *     [store.index("byUserAndDate"), ["kazik"]],
- *     [store.index("byTagAndDate"), ["photography"]],
+ *     [
+ *       store.index("byUserAndDate"),
+ *       IDBKeyRange.bound(["kazik", minDate], ["kazik", maxDate]),
+ *     ],
+ *     [
+ *       store.index("byTagAndDate"),
+ *       IDBKeyRange.bound(["photography", minDate], ["photography", maxDate]),
+ *     ],
  *   ])
  * );
  * ```
  *
  * In above case the date is the postfix component of the composite index.
  *
- * Additionally, the postfix and primary key ranges can be used to further filter the results.
- * Pass an array of ranges to filter per every component of a composite key.
- *
- * Same as above, but filtered by date and primary key ranges:
- *
- * ```js
- * const results = await Array.fromAsync(
- *   iterateIndexesConcurrently(
- *     [
- *       [store.index("byUserAndDate"), ["kazik"]],
- *       [store.index("byTagAndDate"), ["photography"]],
- *     ],
- *     [IDBKeyRange.upperBound(new Date("2025-01-01"))],
- *     IDBKeyRange.lowerBound(123),
- *     { ...options },
- *   )
- * );
- * ```
+ * Additionally, a primary key range can be used to further filter the results.
  */
-
 export async function* iterateIndexesConcurrently<T>(
-  indexValues: readonly (readonly [index: IDBObjectStore | IDBIndex, value: IDBValidKey])[],
-  postfixKeyRanges: readonly (IDBKeyRange | undefined)[] | undefined,
-  primaryKeyRanges: IDBKeyRange | readonly (IDBKeyRange | undefined)[] | undefined,
+  indexRanges: readonly (readonly [index: IDBObjectStore | IDBIndex, range: IDBKeyRange])[],
+  primaryKeyRange: IDBKeyRange | undefined,
   options: CursorIterationOptions,
 ): AsyncGenerator<T, undefined, undefined> {
   const { limit = Infinity, reverse = false } = options;
 
   // Create a cursor for every filter.
   let cursors = await Promise.all(
-    indexValues.map(async ([index, value]) => {
-      // For composite indexes, value can be a prefix of the indexed key.
-      // In that case we want to query for all keys starting with the prefix.
-      const range = Array.isArray(value)
-        ? IDBKeyRange.bound(value, [...value, getMaxKey()])
-        : IDBKeyRange.only(value);
-      return idbReqToPromise(index.openCursor(range, reverse ? "prev" : "next"));
-    }),
+    indexRanges.map(async ([index, range]) =>
+      idbReqToPromise(index.openCursor(range, reverse ? "prev" : "next")),
+    ),
   );
 
   let i = 0;
   while (i < limit) {
     // Move all cursors according to postfix and primary key ranges.
-    cursors = await Promise.all(
-      cursors.map(async (cursor) => {
-        // First key part is already constrained by cursor's range
-        const ranges = [undefined, ...(postfixKeyRanges ?? [])];
-        return skipCursorOverRanges(cursor, ranges, primaryKeyRanges, reverse);
-      }),
-    );
+    if (primaryKeyRange) {
+      cursors = await Promise.all(
+        cursors.map(async (cursor) => {
+          return continuePrimaryKeyRange(cursor, primaryKeyRange, reverse);
+        }),
+      );
+    }
 
     // If any cursor is null, we've reached the end.
     if (!cursors.every((cursor) => cursor != null)) break;
     // All cursors are pointing to some item.
-    const postfixes = cursors.map((cursor, i) => {
-      const prefix = indexValues[i]![1];
+
+    const postfixes = cursors.map((cursor) => {
+      const composite = Array.isArray(cursor.source.keyPath);
+      if (composite) {
+        // For composite index, the postfix is the second component of the key + primary key.
+        const keyPostfix = (cursor.key as IDBValidKey[])[1]!;
+        return [keyPostfix, cursor.primaryKey];
+      }
       // For primitive index the postfix is just the primary key.
-      if (!Array.isArray(prefix) || !Array.isArray(cursor.key)) return [cursor.primaryKey];
-      // For composite index, the postfix is the part after the prefix.
-      const keyPostfix = cursor.key.slice(prefix.length);
-      return [...keyPostfix, cursor.primaryKey];
+      return [cursor.primaryKey];
     });
 
     // Find out the largest postfix of all current items.
@@ -121,7 +105,7 @@ export async function* iterateIndexesConcurrently<T>(
       cursors = await Promise.all(
         cursors.map(async (cursor) => {
           cursor.continue();
-          return idbReqToPromise(cursor.request as IDBRequest<IDBCursorWithValue | null>);
+          return idbReqToPromise(cursor.request);
         }),
       );
       continue;
@@ -133,16 +117,22 @@ export async function* iterateIndexesConcurrently<T>(
         // If the cursor is already pointing to the largest postfix, leave it as is.
         if (indexedDB.cmp(postfixes[i]!, furthestPostfix) === 0) return cursor;
         // Otherwise, move it to at least the largest postfix.
-        const prefix = indexValues[i]![1];
-        if (Array.isArray(prefix)) {
-          const keyPostfix = furthestPostfix.slice(0, furthestPostfix.length - 1);
-          const primaryKey = furthestPostfix[furthestPostfix.length - 1]!;
-          const key = [...prefix, ...keyPostfix];
+        const composite = Array.isArray(cursor.source.keyPath);
+        if (composite) {
+          // For composite index, the first component is the prefix,
+          // and the second component + primary key is the postfix.
+          const prefix = (cursor.key as IDBValidKey[])[0]!;
+          const keyPostfix = furthestPostfix[0]!;
+          const primaryKey = furthestPostfix[1]!;
+          const key = [prefix, keyPostfix];
           cursor.continuePrimaryKey(key, primaryKey);
         } else {
+          // For primitive index, the whole key is the prefix
+          // and the primary key is the postfix.
+          const prefix = cursor.key;
           cursor.continuePrimaryKey(prefix, furthestPostfix[0]!);
         }
-        return idbReqToPromise(cursor.request as IDBRequest<IDBCursorWithValue | null>);
+        return idbReqToPromise(cursor.request);
       }),
     );
   }
