@@ -23,7 +23,7 @@ Initialize the database:
 ```ts
 import { openDB, schema } from "idbts";
 
-type PersonEntry = {
+type PersonRecord = {
   id: string;
   name: { first: string; last: string };
   age: number;
@@ -31,12 +31,12 @@ type PersonEntry = {
 
 const db = await openDB("my-db", 1, {
   people: {
-    value: schema<PersonEntry>(),
-    keyPath: "id",
-    indexes: {
-      byFirstName: { keyPath: "name.first" },
-      byLastName: { keyPath: "name.last" },
-      byAge: { keyPath: "age" },
+    recordSchema: schema<PersonRecord>(),
+    primaryKeyPath: "id",
+    indexedKeyPaths: {
+      "name.first": {},
+      "name.last": {},
+      age: { sortable: true },
     },
   },
 });
@@ -72,9 +72,9 @@ const people = await queryDB(db, "people", {
   where: {
     "name.first": "Jan",
     "name.last": "Kowalski",
-    age: IDBKeyRange.lowerBound(18),
   },
   orderBy: "age",
+  lower: 18,
 });
 ```
 
@@ -86,10 +86,11 @@ import { liveQueryDB } from "idbts";
 const ac = new AbortController();
 
 const livePeople = liveQueryDB(db, "people", { orderBy: "age" });
+
 livePeople.subscribe(
   {
-    next: (people) => console.log("Current results:", people),
-    error: (err) => console.error("Query failed:", err),
+    next: (people) => console.log("Results:", people),
+    error: (err) => console.error("Error:", err),
   },
   { signal: ac.signal },
 );
@@ -100,7 +101,7 @@ ac.abort();
 
 ## Type safety
 
-Use `schema<T>()` helper to define your item types.
+Use `schema<T>()` helper to define your record types.
 It creates a no-op [StandardSchema](https://standardschema.dev/)-compatible object
 that carries your TypeScript type without any runtime validation overhead.
 
@@ -130,8 +131,8 @@ const personSchema = z.object({
 
 const db = await openDB("my-db", 1, {
   people: {
-    value: personSchema, // replaces schema<PersonEntry>()
-    keyPath: "id",
+    recordSchema: personSchema, // replaces schema<PersonRecord>()
+    primaryKeyPath: "id",
   },
 });
 ```
@@ -156,7 +157,7 @@ try {
 
 > [!WARNING]
 >
-> Async validators are **not** supported.
+> Async validators are _not_ supported.
 > IndexedDB doesn't support performing other async operations while a transaction is active.
 > If you use an async validator, the transaction will be automatically aborted
 > and an error will be thrown.
@@ -166,37 +167,28 @@ try {
 When you bump the version number, `openDB` automatically:
 
 - **Creates** stores and indexes that are present in the new schema but absent in the database.
-- **Deletes** stores and indexes that are absent from the new schema.
+- **Deletes** stores and indexes that are absent from the new schema but present in the database.
 
 You never need to write `createObjectStore` / `createIndex` calls by hand.
 
 ## Smart query planner
 
-Query automatically selects the most efficient index strategy:
+Query automatically selects the most efficient strategy:
 
-1. **Primary key** — if all filter and order fields are part of the store's compound primary key (if it has one).
-2. **Single index** — if one (possibly composite) index covers all filter and order fields in the right order.
-3. **Zig-zag merge join** — if multiple equality (single value) filters
-   each have their own index,
-   this algorithm advances cursors in lockstep across indexes
-   to intersect their results efficiently.
-
-> [!TIP]
->
-> If no suitable index exists, `queryDB` throws an error with a message like:
->
-> ```txt
-> Missing index on name.first+age.
-> ```
->
-> That tells you exactly which compound index to add to your schema.
+1. **Primary key** – used by default.
+2. **Simple index** – when ordering by an indexed field.
+3. **Composite index** – when filtering by one field and ordering by another.
+4. **Zig-zag merge join** – if multiple equality filters were specified
+   the algorithm opens one cursor per filter (each on its own index)
+   and advances them in lockstep, yielding only records
+   whose primary key appears in every cursor position.
 
 ## Live updates
 
 Live queries subscribe to a `BroadcastChannel` which receives store mutations
 and applies incoming changes to the live results array.
 
-The items which didn't change from one emit to the next
+The records which didn't change from one emit to the next
 are guaranteed to be the same objects as before,
 so subscribers can memoize based on object reference equality.
 
