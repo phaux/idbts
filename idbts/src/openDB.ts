@@ -69,7 +69,7 @@ export interface OpenDBOptions {
  * ```ts
  * const db = await openDB("my-db", 1, {
  *   posts: {
- *     itemSchema: schema<PostEntry>(),
+ *     recordSchema: schema<PostRecord>(),
  *     primaryKeyPath: "id",
  *     indexedKeyPaths: {
  *       authorId: {},

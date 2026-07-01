@@ -12,25 +12,25 @@ import { schema } from "../src/schema.ts";
 
 await suite("Database", { concurrency: true }, async () => {
   await test("inline key and index", async (t) => {
-    interface NameItem {
+    interface NameObj {
       readonly id: number;
       readonly name: string;
     }
-    interface DateItem {
+    interface DateObj {
       readonly id: number | string;
       readonly created: Date;
     }
     const db = await openDB("inline-key+index", 1, {
       num2name: {
         primaryKeyPath: "id",
-        itemSchema: schema<NameItem>(),
+        recordSchema: schema<NameObj>(),
         indexedKeyPaths: {
           name: {},
         },
       },
       union2date: {
         primaryKeyPath: "id",
-        itemSchema: schema<DateItem>(),
+        recordSchema: schema<DateObj>(),
         indexedKeyPaths: {
           created: {},
         },
@@ -40,14 +40,14 @@ await suite("Database", { concurrency: true }, async () => {
     await t.test("insert and get name", async () => {
       expectTypeOf(db.insert<"num2name">)
         .parameter(1)
-        .toEqualTypeOf<NameItem | readonly NameItem[]>();
+        .toEqualTypeOf<NameObj | readonly NameObj[]>();
       await db.insert("num2name", { id: 1, name: "foo" });
       expectTypeOf(db.get<"num2name">)
         .parameter(1)
         .toEqualTypeOf<number>();
-      expectTypeOf(db.get<"num2name">).returns.resolves.toEqualTypeOf<NameItem | undefined>();
+      expectTypeOf(db.get<"num2name">).returns.resolves.toEqualTypeOf<NameObj | undefined>();
       deepEqual(await db.get("num2name", 1), { id: 1, name: "foo" });
-      expectTypeOf(db.getAll<"num2name">).returns.resolves.toEqualTypeOf<NameItem[]>();
+      expectTypeOf(db.getAll<"num2name">).returns.resolves.toEqualTypeOf<NameObj[]>();
       deepEqual(await db.getAll("num2name"), [{ id: 1, name: "foo" }]);
     });
 
@@ -56,7 +56,7 @@ await suite("Database", { concurrency: true }, async () => {
     await t.test("insert and get date", async () => {
       expectTypeOf(db.insert<"union2date">)
         .parameter(1)
-        .toEqualTypeOf<DateItem | readonly DateItem[]>();
+        .toEqualTypeOf<DateObj | readonly DateObj[]>();
       await db.insert("union2date", [
         { id: 1, created: now },
         { id: "two", created: now },
@@ -65,7 +65,7 @@ await suite("Database", { concurrency: true }, async () => {
         .parameter(1)
         .toEqualTypeOf<number | string>();
       deepEqual(await db.get("union2date", 1), { id: 1, created: now });
-      expectTypeOf(db.getAll<"union2date">).returns.resolves.toEqualTypeOf<DateItem[]>();
+      expectTypeOf(db.getAll<"union2date">).returns.resolves.toEqualTypeOf<DateObj[]>();
       deepEqual(await db.getAll("union2date"), [
         { id: 1, created: now },
         { id: "two", created: now },
@@ -76,13 +76,13 @@ await suite("Database", { concurrency: true }, async () => {
       const type = expectTypeOf(db.update<"num2name">);
       type.parameter(1).toEqualTypeOf<number | readonly number[]>();
       const updater = type.parameter(2);
-      updater.parameter(0).toEqualTypeOf<Readonly<NameItem> | undefined>();
-      updater.returns.toEqualTypeOf<Readonly<NameItem> | undefined>();
+      updater.parameter(0).toEqualTypeOf<Readonly<NameObj> | undefined>();
+      updater.returns.toEqualTypeOf<Readonly<NameObj> | undefined>();
       await db.update("num2name", 1, (value) => ({ ...value!, name: value!.name + "!" }));
       deepEqual(await db.get("num2name", 1), { id: 1, name: "foo!" });
     });
 
-    await t.test("update can create entry", async () => {
+    await t.test("update can create a record", async () => {
       deepEqual(await db.get("num2name", 2), undefined);
       await db.update("num2name", 2, () => ({ id: 2, name: "new?" }));
       deepEqual(await db.get("num2name", 2), { id: 2, name: "new?" });
@@ -157,7 +157,7 @@ await suite("Database", { concurrency: true }, async () => {
       deepEqual(await db.get("num2name", 2), { id: 2, name: "new?!?" });
     });
 
-    await t.test("update can delete entry", async () => {
+    await t.test("update can delete a record", async () => {
       await db.update("num2name", 2, () => undefined);
       deepEqual(await db.get("num2name", 2), undefined);
     });
@@ -187,13 +187,13 @@ await suite("Database", { concurrency: true }, async () => {
   });
 
   await test("deeply nested key and index", async (t) => {
-    interface Item {
+    interface NestedObj {
       foo: { bar: { baz: string } };
     }
     const db = await openDB("deeply-nested-key+index", 1, {
       deeplyNested: {
         primaryKeyPath: "foo.bar.baz",
-        itemSchema: schema<Item>(),
+        recordSchema: schema<NestedObj>(),
         indexedKeyPaths: {
           "foo.bar.baz": {},
         },
@@ -249,7 +249,7 @@ await suite("Database", { concurrency: true }, async () => {
     const db = await openDB("missing-key-path", 1, {
       invalid: {
         primaryKeyPath: "doesnt.exist",
-        itemSchema: schema<object>(),
+        recordSchema: schema<object>(),
       },
     });
 
@@ -269,7 +269,7 @@ await suite("Database", { concurrency: true }, async () => {
     const db = await openDB("boolean-key-path", 1, {
       invalid: {
         primaryKeyPath: "foo",
-        itemSchema: schema<Record>(),
+        recordSchema: schema<Record>(),
       },
     });
 
@@ -283,12 +283,12 @@ await suite("Database", { concurrency: true }, async () => {
   });
 
   await test("special properties - string", async () => {
-    interface Item {
+    interface StrObj {
       str: string;
     }
     const db = await openDB("special-properties-string", 1, {
       special: {
-        itemSchema: schema<Item>(),
+        recordSchema: schema<StrObj>(),
         primaryKeyPath: "str.length",
       },
     });
@@ -304,12 +304,12 @@ await suite("Database", { concurrency: true }, async () => {
   });
 
   await test("special properties - array", async () => {
-    interface Item {
+    interface ArrObj {
       arr: boolean[];
     }
     const db = await openDB("special-properties-array", 1, {
       special: {
-        itemSchema: schema<Item>(),
+        recordSchema: schema<ArrObj>(),
         primaryKeyPath: "arr.length",
       },
     });
@@ -325,13 +325,13 @@ await suite("Database", { concurrency: true }, async () => {
   });
 
   await test("array key", async (t) => {
-    interface Item {
+    interface POI {
       coords: [x: number, y: number];
       name?: string;
     }
     const db = await openDB("array-key", 1, {
       points: {
-        itemSchema: schema<Item>(),
+        recordSchema: schema<POI>(),
         primaryKeyPath: "coords",
       },
     });
@@ -348,8 +348,8 @@ await suite("Database", { concurrency: true }, async () => {
       const type = expectTypeOf(db.update<"points">);
       type.parameter(1).toEqualTypeOf<readonly [number, number][]>();
       const updater = type.parameter(2);
-      updater.parameter(0).toEqualTypeOf<Readonly<Item> | undefined>();
-      updater.returns.toEqualTypeOf<Readonly<Item> | undefined>();
+      updater.parameter(0).toEqualTypeOf<Readonly<POI> | undefined>();
+      updater.returns.toEqualTypeOf<Readonly<POI> | undefined>();
       await db.update("points", [[1, 2]], (value) => ({ coords: value!.coords, name: "point" }));
       deepEqual(await db.get("points", [1, 2]), { coords: [1, 2], name: "point" });
     });
@@ -389,7 +389,7 @@ await suite("Database", { concurrency: true }, async () => {
 
     const db = await openDB("zod-validation", 1, {
       users: {
-        itemSchema: userSchema,
+        recordSchema: userSchema,
         primaryKeyPath: "id",
       },
     });
@@ -466,13 +466,13 @@ await suite("Database", { concurrency: true }, async () => {
 
     await t.test("no-op schema skips validation", async () => {
       const db2 = await openDB("zod-noop", 1, {
-        items: {
-          itemSchema: schema<User>(),
+        users: {
+          recordSchema: schema<User>(),
           primaryKeyPath: "id",
         },
       });
-      await db2.insert("items", { id: 99, name: "", age: -1 });
-      deepEqual(await db2.get("items", 99), { id: 99, name: "", age: -1 });
+      await db2.insert("users", { id: 99, name: "", age: -1 });
+      deepEqual(await db2.get("users", 99), { id: 99, name: "", age: -1 });
       db2.idb.close();
     });
 
@@ -503,7 +503,7 @@ await suite("Database", { concurrency: true }, async () => {
 
     const db = await openDB("transform-schema-types", 1, {
       users: {
-        itemSchema: transformSchema,
+        recordSchema: transformSchema,
         primaryKeyPath: "id",
       },
     });

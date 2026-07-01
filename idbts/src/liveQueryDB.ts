@@ -1,4 +1,4 @@
-import type { AnyDatabaseSchema, Database, StoreEntry } from "./Database.ts";
+import type { AnyDatabaseSchema, Database, StoreRecord } from "./Database.ts";
 import { getKeyPathValue } from "./KeyPath.ts";
 import { toIDBKeyRange } from "./KeyRange.ts";
 import { MiniObservable } from "./MiniObservable.ts";
@@ -13,7 +13,7 @@ import { getStoreChangesChannel, type StoreChange } from "./storeChangesChannel.
  * then subscribes to the channel from {@link getStoreChangesChannel}
  * and applies incoming changes to the live results array.
  *
- * The items which didn't change from one emit to the next
+ * The records which didn't change from one emit to the next
  * are guaranteed to be the same objects as before,
  * so subscribers can memoize based on object reference equality.
  *
@@ -46,7 +46,7 @@ export function liveQueryDB<
   db: Database<Schema>,
   storeName: StoreName,
   options: QueryOptions<Schema[StoreName]>,
-): MiniObservable<StoreEntry<Schema[StoreName]>[]> {
+): MiniObservable<StoreRecord<Schema[StoreName]>[]> {
   return new MiniObservable((subscriber) => {
     // Open a no-op transaction to obtain the primary key path.
     const primaryKeyPath = db.idb.transaction(storeName).objectStore(storeName).keyPath as string;
@@ -71,7 +71,7 @@ export function liveQueryDB<
      * `currentResults` is undefined until the initial query resolves.
      * This flag is used by the message handler to decide whether to buffer or apply.
      */
-    let currentResults: StoreEntry<Schema[StoreName]>[] | undefined;
+    let currentResults: StoreRecord<Schema[StoreName]>[] | undefined;
 
     /**
      * Changes that arrive while the initial query is in flight are stored here
@@ -164,7 +164,7 @@ export function liveQueryDB<
           // Remove the stale record from the result set by its primary key.
           const key = getKeyPathValue(change.oldValue, primaryKeyPath);
           const index = currentResults!.findIndex(
-            (item) => indexedDB.cmp(getKeyPathValue(item, primaryKeyPath), key) === 0,
+            (record) => indexedDB.cmp(getKeyPathValue(record, primaryKeyPath), key) === 0,
           );
           if (index >= 0) {
             const oldLength = currentResults!.length;
@@ -181,12 +181,12 @@ export function liveQueryDB<
               if (controller.signal.aborted) return;
               // Merge: reuse existing object references for items that are still present
               // so that reference-equality checks remain valid.
-              currentResults = freshResults.map((freshItem) => {
-                const k = getKeyPathValue(freshItem, primaryKeyPath);
+              currentResults = freshResults.map((freshRecord) => {
+                const k = getKeyPathValue(freshRecord, primaryKeyPath);
                 return (
                   prevResults.find(
-                    (item) => indexedDB.cmp(getKeyPathValue(item, primaryKeyPath), k) === 0,
-                  ) ?? freshItem
+                    (record) => indexedDB.cmp(getKeyPathValue(record, primaryKeyPath), k) === 0,
+                  ) ?? freshRecord
                 );
               });
             }
@@ -198,7 +198,7 @@ export function liveQueryDB<
             // Evict any existing entry with the same primary key (upsert semantics),
             // append the new value, and re-sort.
             const newResults = currentResults!
-              .filter((item) => indexedDB.cmp(getKeyPathValue(item, primaryKeyPath), key) !== 0)
+              .filter((record) => indexedDB.cmp(getKeyPathValue(record, primaryKeyPath), key) !== 0)
               .concat([change.newValue])
               .sort((a, b) => {
                 const aValue = getKeyPathValue(a, orderBy);
@@ -214,7 +214,7 @@ export function liveQueryDB<
             // by no-op inserts that land beyond the limit window.
             if (
               newResults.length !== currentResults!.length ||
-              newResults.some((item, i) => item !== currentResults![i])
+              newResults.some((record, i) => record !== currentResults![i])
             ) {
               currentResults = newResults;
             }
@@ -226,22 +226,22 @@ export function liveQueryDB<
 }
 
 /**
- * Checks whether a store entry satisfies all query conditions.
+ * Checks whether a store record satisfies all query conditions.
  */
 function queryMatches(
-  entry: object,
+  record: object,
   rangeKeyPath: string | undefined,
   range: IDBKeyRange | undefined,
   filters: Record<string, IDBValidKey | undefined>,
 ): boolean {
   if (rangeKeyPath != null && range != null) {
-    const entryValue = getKeyPathValue(entry, rangeKeyPath);
-    if (entryValue == null || !range.includes(entryValue)) return false;
+    const recordValue = getKeyPathValue(record, rangeKeyPath);
+    if (recordValue == null || !range.includes(recordValue)) return false;
   }
   for (const [keyPath, filterValue] of Object.entries(filters)) {
     if (filterValue == null) continue;
     const range = IDBKeyRange.only(filterValue);
-    if (!range.includes(getKeyPathValue(entry, keyPath))) return false;
+    if (!range.includes(getKeyPathValue(record, keyPath))) return false;
   }
   return true;
 }

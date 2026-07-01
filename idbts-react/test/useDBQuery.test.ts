@@ -9,7 +9,7 @@ await suite("useDBQuery", async () => {
   const db = await openDB("use-db-query", 1, {
     users: {
       primaryKeyPath: "id",
-      itemSchema: schema<{
+      recordSchema: schema<{
         id: number;
         name: string;
       }>(),
@@ -68,7 +68,9 @@ await suite("useDBQuery", async () => {
     await act(async () => db.insert("users", { id: 1, name: "Alice" }));
     // DB: 1 Alice
     await waitForText("Alice");
-    await act(async () => db.update("users", 1, (entry) => ({ ...entry!, name: "Alice Updated" })));
+    await act(async () =>
+      db.update("users", 1, (record) => ({ ...record!, name: "Alice Updated" })),
+    );
     // DB: 1 Alice Updated
     await waitForText("Alice Updated");
     await act(async () => root.render(h(UserList, { where: { id: 2 } })));
@@ -90,7 +92,7 @@ await suite("useDBQuery", async () => {
     await act(async () => db.insert("users", { id: 1, name: "Bob" }));
     // DB: 1 Bob
     await waitForText("Bob");
-    await act(async () => db.update("users", 1, (entry) => ({ ...entry!, name: "Bob Updated" })));
+    await act(async () => db.update("users", 1, (record) => ({ ...record!, name: "Bob Updated" })));
     // DB: 1 Bob Updated
     await waitForText("Bob Updated");
     await act(async () => db.insert("users", { id: 2, name: "Charlie" }));
@@ -178,7 +180,7 @@ await suite("useDBQuery", async () => {
     );
     // DB: 0 Zoe, 1 Adam, 2 Beth, 3 Alice, 5 Bob
     await waitForText("AdamAliceBethBobZoe");
-    await act(async () => db.update("users", 3, (entry) => ({ ...entry!, name: "Cara" })));
+    await act(async () => db.update("users", 3, (record) => ({ ...record!, name: "Cara" })));
     // DB: 0 Zoe, 1 Adam, 2 Beth, 3 Cara, 5 Bob
     await waitForText("AdamBethBobCaraZoe");
     await act(async () => root.render(h(UserList, { orderBy: "id" })));

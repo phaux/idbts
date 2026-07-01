@@ -19,7 +19,7 @@ await suite("openDB", async () => {
       "test-db",
       1,
       {
-        strs: { primaryKeyPath: "id", itemSchema: schema<StrRecord>() },
+        strs: { primaryKeyPath: "id", recordSchema: schema<StrRecord>() },
       },
       { onUpgradeNeeded },
     );
@@ -36,7 +36,7 @@ await suite("openDB", async () => {
       "test-db",
       1,
       {
-        strs: { primaryKeyPath: "id", itemSchema: schema<StrRecord>() },
+        strs: { primaryKeyPath: "id", recordSchema: schema<StrRecord>() },
       },
       { onUpgradeNeeded },
     );
@@ -51,8 +51,12 @@ await suite("openDB", async () => {
       "test-db",
       2,
       {
-        strs: { primaryKeyPath: "id", itemSchema: schema<StrRecord>() },
-        nums: { primaryKeyPath: "id", itemSchema: schema<NumRecord>(), indexedKeyPaths: { a: {} } },
+        strs: { primaryKeyPath: "id", recordSchema: schema<StrRecord>() },
+        nums: {
+          primaryKeyPath: "id",
+          recordSchema: schema<NumRecord>(),
+          indexedKeyPaths: { a: {} },
+        },
       },
       { onUpgradeNeeded },
     );
@@ -72,10 +76,10 @@ await suite("openDB", async () => {
       "test-db",
       3,
       {
-        strs: { primaryKeyPath: "id", itemSchema: schema<StrRecord>() },
+        strs: { primaryKeyPath: "id", recordSchema: schema<StrRecord>() },
         nums: {
           primaryKeyPath: "id",
-          itemSchema: schema<NumRecord>(),
+          recordSchema: schema<NumRecord>(),
           indexedKeyPaths: { a: {}, b: {} },
         },
       },
@@ -94,10 +98,10 @@ await suite("openDB", async () => {
 
   await test("adding sortable index creates composite indexes", async () => {
     const db = await openDB("test-db", 4, {
-      strs: { primaryKeyPath: "id", itemSchema: schema<StrRecord>() },
+      strs: { primaryKeyPath: "id", recordSchema: schema<StrRecord>() },
       nums: {
         primaryKeyPath: "id",
-        itemSchema: schema<NumRecord>(),
+        recordSchema: schema<NumRecord>(),
         indexedKeyPaths: { a: {}, b: {}, c: { sortable: true } },
       },
     });
@@ -111,8 +115,8 @@ await suite("openDB", async () => {
 
   await test("upgrade deletes indexes", async () => {
     const db = await openDB("test-db", 5, {
-      strs: { primaryKeyPath: "id", itemSchema: schema<StrRecord>() },
-      nums: { primaryKeyPath: "id", itemSchema: schema<NumRecord>(), indexedKeyPaths: { b: {} } },
+      strs: { primaryKeyPath: "id", recordSchema: schema<StrRecord>() },
+      nums: { primaryKeyPath: "id", recordSchema: schema<NumRecord>(), indexedKeyPaths: { b: {} } },
     });
     {
       const tx = db.idb.transaction("nums", "readonly");
@@ -124,7 +128,7 @@ await suite("openDB", async () => {
 
   await test("upgrade deletes stores", async () => {
     const db = await openDB("test-db", 6, {
-      nums: { primaryKeyPath: "id", itemSchema: schema<NumRecord>() },
+      nums: { primaryKeyPath: "id", recordSchema: schema<NumRecord>() },
     });
     deepEqual(Array.from(db.storeNames), ["nums"]);
     db.idb.close();
@@ -137,7 +141,7 @@ await suite("openDB", async () => {
         "test-db",
         3,
         {
-          strs: { primaryKeyPath: "id", itemSchema: schema<StrRecord>() },
+          strs: { primaryKeyPath: "id", recordSchema: schema<StrRecord>() },
         },
         { onUpgradeNeeded },
       ),

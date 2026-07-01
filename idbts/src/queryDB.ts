@@ -2,8 +2,8 @@ import type {
   AnyDatabaseSchema,
   AnyStoreSchema,
   Database,
-  StoreEntry,
   StoreKey,
+  StoreRecord,
 } from "./Database.ts";
 import { iterateIndexesConcurrently } from "./iterateIndexesConcurrently.ts";
 import { iterateStoreOrIndex, type CursorIterationOptions } from "./iterateStoreOrIndex.ts";
@@ -12,7 +12,7 @@ import { prefixRange, toIDBKeyRange, type KeyRangeObject } from "./KeyRange.ts";
 
 /**
  * Executes a one-shot async query against a database
- * and returns all matching items as an array.
+ * and returns all matching records as an array.
  *
  * The function automatically selects the most efficient strategy:
  *
@@ -43,7 +43,7 @@ export async function queryDB<
   db: Database<Schema>,
   storeName: StoreName,
   options: QueryOptions<Schema[StoreName]>,
-): Promise<StoreEntry<Schema[StoreName]>[]> {
+): Promise<StoreRecord<Schema[StoreName]>[]> {
   // Open a no-op transaction to obtain the primary key path.
   const tx = db.idb.transaction(storeName),
     store = tx.objectStore(storeName),
@@ -52,7 +52,7 @@ export async function queryDB<
 
   // Extract and normalize the option values.
   const where = Object.entries<IDBValidKey | undefined>(options.where ?? {}).filter(
-      (entry): entry is [string, IDBValidKey] => entry[1] != null,
+      (filter): filter is [string, IDBValidKey] => filter[1] != null,
     ),
     orderBy = options.orderBy ?? primaryKeyPath,
     lower = options.lower,
@@ -184,10 +184,10 @@ export interface QueryPredicatesForKeyPath<
   /**
    * Field equality filters. Accepts a map of key path to key value.
    *
-   * Each entry is tested for equality against the values at the specified key paths.
-   * An entry must satisfy all of them to be included in the results (AND semantics).
+   * Each record is tested for equality against the values at the specified key paths.
+   * A record must satisfy all of them to be included in the results (AND semantics).
    *
-   * Omit entirely to get all entries.
+   * Omit entirely to get all records.
    */
   readonly where?: QueryFilters<StoreSchema> | undefined;
 }
@@ -198,7 +198,7 @@ export interface QueryPredicatesForKeyPath<
  */
 export type QueryFilters<StoreSchema extends AnyStoreSchema> = {
   readonly [K in StoreSchema["primaryKeyPath"] | StoreIndexedKeyPaths<StoreSchema>]?: KeyPathValue<
-    StoreEntry<StoreSchema>,
+    StoreRecord<StoreSchema>,
     K & string
   >;
 };

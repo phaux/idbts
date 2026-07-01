@@ -8,19 +8,19 @@ import { schema } from "../src/schema.ts";
 await suite("liveQueryDB", { concurrency: true }, async () => {
   await test("buffers changes until initial query resolves", async () => {
     const db = await openDB("live-query-buffering", 1, {
-      items: {
-        itemSchema: schema<{ id: number }>(),
+      nums: {
+        recordSchema: schema<{ id: number }>(),
         primaryKeyPath: "id",
       },
     });
     const mutations: Promise<void>[] = [];
     const ac = new AbortController();
     // DB: []
-    mutations.push(db.insert("items", { id: 1 }));
-    mutations.push(db.insert("items", { id: 2 }));
+    mutations.push(db.insert("nums", { id: 1 }));
+    mutations.push(db.insert("nums", { id: 2 }));
     // subscription starts while inserts are still in-flight
-    const changes = collect(liveQueryDB(db, "items", {}), ac.signal);
-    mutations.push(db.insert("items", { id: 3 }));
+    const changes = collect(liveQueryDB(db, "nums", {}), ac.signal);
+    mutations.push(db.insert("nums", { id: 3 }));
     await Promise.all(mutations);
     // DB: [{id:1}, {id:2}, {id:3}]
     await tick();
@@ -30,13 +30,13 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
   });
 
   await test("by primary key", async (t) => {
-    interface Item {
+    interface Record {
       n: number;
       s?: string;
     }
     const db = await openDB("live-query-primary-key", 1, {
       nums: {
-        itemSchema: schema<Item>(),
+        recordSchema: schema<Record>(),
         primaryKeyPath: "n",
       },
     });
@@ -210,14 +210,14 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
   });
 
   await test("by index", async (t) => {
-    interface Item {
+    interface Record {
       id: number;
       name: string;
       age: number;
     }
     const db = await openDB("live-query-index", 1, {
       people: {
-        itemSchema: schema<Item>(),
+        recordSchema: schema<Record>(),
         primaryKeyPath: "id",
         indexedKeyPaths: {
           name: { sortable: true },
@@ -443,7 +443,7 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
     }
     const db = await openDB("live-query-limit", 1, {
       nums: {
-        itemSchema: schema<Record>(),
+        recordSchema: schema<Record>(),
         primaryKeyPath: "n",
       },
     });
@@ -458,7 +458,7 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
     });
     // DB: [1, 2, 3, 4, 5]
 
-    await t.test("insert at beginning truncates last item", async () => {
+    await t.test("insert at beginning truncates last record", async () => {
       const ac = new AbortController();
       const changesPromise = collect(liveQueryDB(db, "nums", { limit: 3 }), ac.signal);
       await db.insert("nums", { n: 0 });
@@ -469,7 +469,7 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
         [{ n: 1 }, { n: 2 }, { n: 3 }],
         [{ n: 0 }, { n: 1 }, { n: 2 }],
       ]);
-      // Items that remained in the window keep their object references.
+      // Records that remained in the window keep their object references.
       equal(changes[0]![0], changes[1]![1]); // {n:1} preserved
       equal(changes[0]![1], changes[1]![2]); // {n:2} preserved
     });
@@ -497,7 +497,7 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
         [{ n: 0 }, { n: 1 }, { n: 2 }],
         [{ n: 1 }, { n: 2 }, { n: 3 }],
       ]);
-      // Items that were already in the window keep their object references.
+      // Records that were already in the window keep their object references.
       equal(changes[0]![1], changes[1]![0]); // {n:1} preserved
       equal(changes[0]![2], changes[1]![1]); // {n:2} preserved
     });
@@ -549,20 +549,20 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
     // DB: [1, 2, 3, 5, 6]
 
     await t.test("limit + orderBy", async () => {
-      interface Item {
+      interface Player {
         id: number;
         score: number;
       }
       const db2 = await openDB("live-query-limit-orderby", 1, {
-        items: {
-          itemSchema: schema<Item>(),
+        players: {
+          recordSchema: schema<Player>(),
           primaryKeyPath: "id",
           indexedKeyPaths: {
             score: { sortable: true },
           },
         },
       });
-      await db2.insert("items", [
+      await db2.insert("players", [
         { id: 1, score: 30 },
         { id: 2, score: 10 },
         { id: 3, score: 20 },
@@ -571,11 +571,11 @@ await suite("liveQueryDB", { concurrency: true }, async () => {
       ]);
       const ac = new AbortController();
       const changesPromise = collect(
-        liveQueryDB(db2, "items", { orderBy: "score", limit: 2 }),
+        liveQueryDB(db2, "players", { orderBy: "score", limit: 2 }),
         ac.signal,
       );
       await tick();
-      await db2.insert("items", { id: 6, score: 5 });
+      await db2.insert("players", { id: 6, score: 5 });
       await tick();
       ac.abort();
       deepEqual(await changesPromise, [

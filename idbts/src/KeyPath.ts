@@ -9,14 +9,14 @@
  * type T = KeyPathValue<{ a: { b: number } }, "a.b"> // number
  * ```
  */
-export type KeyPathValue<Entry, Path extends string> =
-  Entry extends NonNullable<unknown>
+export type KeyPathValue<Record, Path extends string> =
+  Record extends NonNullable<unknown>
     ? Path extends `${infer Prop}.${infer Rest}`
-      ? Prop extends keyof Entry
-        ? KeyPathValue<Entry[Prop], Rest>
+      ? Prop extends keyof Record
+        ? KeyPathValue<Record[Prop], Rest>
         : never
-      : Path extends keyof Entry
-        ? Extract<Entry[Path], IDBValidKey>
+      : Path extends keyof Record
+        ? Extract<Record[Path], IDBValidKey>
         : never
     : never;
 

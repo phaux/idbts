@@ -15,17 +15,17 @@ export type AnyDatabaseSchema = Readonly<Record<string, AnyStoreSchema>>;
  */
 export interface AnyStoreSchema {
   /**
-   * The schema of the store items.
+   * The schema of the store records.
    *
    * This can be any StandardSchema-compatible schema (zod, valibot, etc.).
    * If you don't use one, you can create a no-op schema with `schema<T>()`,
    * which doesn't do any validation but still provides type safety.
    */
-  readonly itemSchema: StandardSchemaV1<object, object>;
+  readonly recordSchema: StandardSchemaV1<object, object>;
 
   /**
    * The primary key path of the store.
-   * Value at this path must uniquely identify each item in the store.
+   * Value at this path must uniquely identify each record in the store.
    *
    * May be a dot-separated path to target a nested property.
    *
@@ -109,38 +109,38 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   }
 
   /**
-   * Retrieves an object from the store by its primary key.
+   * Retrieves a record from the store by its primary key.
    *
    * @see {@link IDBObjectStore.get}
    */
   async get<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
     key: StorePrimaryKey<Schema[StoreName]>,
-  ): Promise<StoreEntry<Schema[StoreName]> | undefined> {
+  ): Promise<StoreRecord<Schema[StoreName]> | undefined> {
     const tx = this.idb.transaction(storeName, "readonly");
     const store = tx.objectStore(storeName);
     return await idbReqToPromise(
-      store.get(key) as IDBRequest<StoreEntry<Schema[StoreName]> | undefined>,
+      store.get(key) as IDBRequest<StoreRecord<Schema[StoreName]> | undefined>,
     );
   }
 
   /**
-   * Retrieves all objects from the store.
+   * Retrieves all records from the store.
    *
    * @see {@link IDBObjectStore.getAll}
    */
   async getAll<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
-  ): Promise<StoreEntry<Schema[StoreName]>[]> {
+  ): Promise<StoreRecord<Schema[StoreName]>[]> {
     const tx = this.idb.transaction(storeName, "readonly");
     const store = tx.objectStore(storeName);
-    return await idbReqToPromise(store.getAll() as IDBRequest<StoreEntry<Schema[StoreName]>[]>);
+    return await idbReqToPromise(store.getAll() as IDBRequest<StoreRecord<Schema[StoreName]>[]>);
   }
 
   /**
-   * Inserts a new object or objects into the store.
+   * Inserts a new record or records into the store.
    *
-   * Uses {@link IDBObjectStore.add} to insert the objects.
+   * Uses {@link IDBObjectStore.add} to insert the records.
    * Rethrows error if an object with the same primary key already exists
    * or if any of the unique constraints are violated.
    */
@@ -166,23 +166,23 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   }
 
   /**
-   * Inserts new object(s) into the store, or updates existing ones.
+   * Inserts new record(s) into the store, or updates existing ones.
    *
-   * If an object with the same primary key already exists and an updater is provided,
-   * the updater is called with the existing and incoming values to produce the stored value.
-   * Otherwise, the incoming value is stored as-is.
+   * If a record with the same primary key already exists and an updater is provided,
+   * the updater is called with the existing and incoming records to produce the stored record.
+   * Otherwise, the incoming record is stored as-is.
    *
-   * Uses {@link IDBObjectStore.put} to insert or update the objects.
+   * Uses {@link IDBObjectStore.put} to insert or update the records.
    * Rethrows error if any of the unique constraints are violated.
    *
-   * @throws {DOMException} If the updater tries to change the object's primary key.
+   * @throws {DOMException} If the updater tries to change the record's primary key.
    */
   async upsert<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
     values: StoreInput<Schema[StoreName]> | readonly StoreInput<Schema[StoreName]>[],
     updater?: (
-      oldValue: StoreEntry<Schema[StoreName]>,
-      newValue: StoreEntry<Schema[StoreName]>,
+      oldValue: StoreRecord<Schema[StoreName]>,
+      newValue: StoreRecord<Schema[StoreName]>,
     ) => StoreInput<Schema[StoreName]>,
   ): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
@@ -194,7 +194,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
         const storedValue = await this.#validateValue(storeName, value);
         const key = getKeyPathValue(storedValue, store.keyPath as string) as IDBValidKey;
         const oldValue = await idbReqToPromise(
-          store.get(key) as IDBRequest<StoreEntry<Schema[StoreName]> | undefined>,
+          store.get(key) as IDBRequest<StoreRecord<Schema[StoreName]> | undefined>,
         );
         const newValue =
           oldValue != null && updater != null
@@ -214,15 +214,15 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   }
 
   /**
-   * Updates an object or objects in the store using the provided updater function.
+   * Updates a record or records in the store using the provided updater function.
    *
-   * Updater receives undefined if the object doesn't exist.
-   * If the updater returns undefined, the object will be deleted.
+   * Updater receives undefined if the record doesn't exist.
+   * If the updater returns undefined, the record will be deleted.
    *
    * Uses either {@link IDBObjectStore.put} or {@link IDBObjectStore.delete} internally.
    * Rethrows error if any of the unique constraints are violated.
    *
-   * @throws {DOMException} If the updater tries to change the object's primary key.
+   * @throws {DOMException} If the updater tries to change the record's primary key.
    */
   async update<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
@@ -230,7 +230,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
       | Extract<StorePrimaryKey<Schema[StoreName]>, number | string>
       | readonly StorePrimaryKey<Schema[StoreName]>[],
     updater: (
-      value: StoreEntry<Schema[StoreName]> | undefined,
+      record: StoreRecord<Schema[StoreName]> | undefined,
     ) => StoreInput<Schema[StoreName]> | undefined,
   ): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
@@ -240,7 +240,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
       const changes: StoreChange<Schema[StoreName]>[] = [];
       for (const key of keyArray) {
         const oldValue = await idbReqToPromise(
-          store.get(key) as IDBRequest<StoreEntry<Schema[StoreName]> | undefined>,
+          store.get(key) as IDBRequest<StoreRecord<Schema[StoreName]> | undefined>,
         );
         const newValue = updater(oldValue);
         const storedValue =
@@ -263,9 +263,9 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   }
 
   /**
-   * Deletes an object or objects from the store.
+   * Deletes a record or records from the store.
    *
-   * Does nothing if there is no object matching the primary key.
+   * Does nothing if there is no record matching the primary key.
    */
   async delete<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
@@ -280,7 +280,7 @@ export class Database<const Schema extends AnyDatabaseSchema> {
       const changes: StoreChange<Schema[StoreName]>[] = [];
       for (const key of keyArray) {
         const oldValue = await idbReqToPromise(
-          store.get(key) as IDBRequest<StoreEntry<Schema[StoreName]> | undefined>,
+          store.get(key) as IDBRequest<StoreRecord<Schema[StoreName]> | undefined>,
         );
         if (oldValue != null) {
           await idbReqToPromise(store.delete(key));
@@ -295,13 +295,13 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   }
 
   /**
-   * Deletes all objects from the store.
+   * Deletes all records from the store.
    */
   async clear(storeName: keyof Schema & string): Promise<void> {
     const tx = this.idb.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
     const oldValues = await idbReqToPromise(
-      store.getAll() as IDBRequest<StoreEntry<Schema[keyof Schema]>[]>,
+      store.getAll() as IDBRequest<StoreRecord<Schema[keyof Schema]>[]>,
     );
     await idbReqToPromise(store.clear());
     const changes: StoreChange<Schema[keyof Schema]>[] = oldValues.map((oldValue) => ({
@@ -317,11 +317,11 @@ export class Database<const Schema extends AnyDatabaseSchema> {
   async #validateValue<const StoreName extends keyof Schema & string>(
     storeName: StoreName,
     value: unknown,
-  ): Promise<StoreEntry<Schema[StoreName]>> {
-    const validate = this.schema[storeName]!.itemSchema["~standard"].validate;
+  ): Promise<StoreRecord<Schema[StoreName]>> {
+    const validate = this.schema[storeName]!.recordSchema["~standard"].validate;
     const result = await validate(value);
     if (result.issues != null) throw new SchemaValidationError(result.issues);
-    return result.value as StoreEntry<Schema[StoreName]>;
+    return result.value as StoreRecord<Schema[StoreName]>;
   }
 }
 
@@ -354,7 +354,7 @@ export class SchemaValidationError extends Error {
  * Infer the key type of an object store based on its schema and a key path.
  */
 export type StoreKey<Schema extends AnyStoreSchema, Path extends string> = KeyPathValue<
-  StoreEntry<Schema>,
+  StoreRecord<Schema>,
   Path
 >;
 
@@ -367,19 +367,19 @@ export type StorePrimaryKey<Schema extends AnyStoreSchema> = StoreKey<
 >;
 
 /**
- * Infer the input value type of an object store based on its schema.
+ * Infer the input record type of an object store based on its schema.
  * This is the type accepted by write operations such as {@link Database.insert} and {@link Database.upsert}.
  */
 export type StoreInput<Schema extends AnyStoreSchema> = Readonly<
-  StandardSchemaV1.InferInput<Schema["itemSchema"]>
+  StandardSchemaV1.InferInput<Schema["recordSchema"]>
 >;
 
 /**
- * Infer the output value type of an object store based on its schema.
+ * Infer the record type of an object store based on its schema.
  * This is the type returned by read operations such as {@link Database.get} and {@link Database.getAll}.
  */
-export type StoreEntry<Schema extends AnyStoreSchema> = Readonly<
-  StandardSchemaV1.InferOutput<Schema["itemSchema"]>
+export type StoreRecord<Schema extends AnyStoreSchema> = Readonly<
+  StandardSchemaV1.InferOutput<Schema["recordSchema"]>
 >;
 
 /**

@@ -4,7 +4,7 @@ import type { CursorIterationOptions } from "./iterateStoreOrIndex.ts";
 
 /**
  * Performs a zig-zag merge join algorithm to iterate the given indexes concurrently.
- * Yields store items filtered by given index-value pairs and optional postfix key ranges.
+ * Yields store records filtered by given index-value pairs and optional postfix key ranges.
  *
  * It can be used to efficiently find entries satisfying multiple key-value equality conditions.
  *
@@ -76,7 +76,7 @@ export async function* iterateIndexesConcurrently<T>(
 
     // If any cursor is null, we've reached the end.
     if (!cursors.every((cursor) => cursor != null)) break;
-    // All cursors are pointing to some item.
+    // All cursors are pointing to some record.
 
     const postfixes = cursors.map((cursor) => {
       const composite = Array.isArray(cursor.source.keyPath);
@@ -89,19 +89,19 @@ export async function* iterateIndexesConcurrently<T>(
       return [cursor.primaryKey];
     });
 
-    // Find out the largest postfix of all current items.
+    // Find out the largest postfix of all current records.
     const furthestPostfix = postfixes.reduce((a, b) => {
       let order = indexedDB.cmp(a, b);
       if (reverse) order = -order;
       return order > 0 ? a : b;
     });
 
-    // Check if all cursors are pointing to the same item.
+    // Check if all cursors are pointing to the same record.
     if (postfixes.every((postfix) => indexedDB.cmp(postfix, furthestPostfix) === 0)) {
       // If so, we found a match.
       yield cursors[0]!.value;
       i++;
-      // Move all cursors to their next item and repeat.
+      // Move all cursors to their next record and repeat.
       cursors = await Promise.all(
         cursors.map(async (cursor) => {
           cursor.continue();
@@ -110,7 +110,7 @@ export async function* iterateIndexesConcurrently<T>(
       );
       continue;
     }
-    // Cursors are pointing to different items.
+    // Cursors are pointing to different records.
     // Try to move the cursors to the current largest postfix.
     cursors = await Promise.all(
       cursors.map(async (cursor, i) => {

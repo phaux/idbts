@@ -16,7 +16,7 @@ export interface CursorIterationOptions {
 }
 
 /**
- * Yields store or index entries that satisfy the given key ranges.
+ * Yields store or index records that satisfy the given key ranges.
  * A key range for the record's key and/or primary key can be specified.
  * Undefined ranges are treated as a wildcard (matches all values).
  *

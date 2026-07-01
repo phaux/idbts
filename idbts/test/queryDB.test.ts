@@ -19,7 +19,7 @@ await suite("queryDB", { concurrency: true }, async () => {
 
   const dbSchema = {
     people: {
-      itemSchema: schema<Person>(),
+      recordSchema: schema<Person>(),
       primaryKeyPath: "id",
       indexedKeyPaths: {
         "name.first": {},
@@ -1110,15 +1110,15 @@ await suite("queryDB", { concurrency: true }, async () => {
 });
 
 await suite("queryDB with optional fields", { concurrency: true }, async () => {
-  interface Item {
+  interface Contact {
     email: string;
     name?: string;
     age?: number;
   }
 
   const dbSchema = {
-    items: {
-      itemSchema: schema<Item>(),
+    contacts: {
+      recordSchema: schema<Contact>(),
       primaryKeyPath: "email",
       indexedKeyPaths: {
         name: { sortable: true },
@@ -1129,14 +1129,14 @@ await suite("queryDB with optional fields", { concurrency: true }, async () => {
 
   const db = await openDB("query-opt", 1, dbSchema);
 
-  const data: Item[] = [
+  const data: Contact[] = [
     { email: "a@example.com", name: "Alice" },
     { email: "b@example.com", name: "Bob", age: 45 },
     { email: "c@example.com", age: 15 },
   ];
-  await db.insert("items", data);
+  await db.insert("contacts", data);
 
-  expectTypeOf(queryDB<typeof dbSchema, "items">)
+  expectTypeOf(queryDB<typeof dbSchema, "contacts">)
     .parameter(2)
     .toEqualTypeOf<{
       readonly where?:
@@ -1157,7 +1157,7 @@ await suite("queryDB with optional fields", { concurrency: true }, async () => {
 
   await test("order by email", async () => {
     deepEqual(
-      await queryDB(db, "items", {
+      await queryDB(db, "contacts", {
         orderBy: "email",
       }),
       data,
@@ -1166,7 +1166,7 @@ await suite("queryDB with optional fields", { concurrency: true }, async () => {
 
   await test("order by name", async () => {
     deepEqual(
-      await queryDB(db, "items", {
+      await queryDB(db, "contacts", {
         orderBy: "name",
       }),
       [data[0], data[1]],
@@ -1175,7 +1175,7 @@ await suite("queryDB with optional fields", { concurrency: true }, async () => {
 
   await test("order by age", async () => {
     deepEqual(
-      await queryDB(db, "items", {
+      await queryDB(db, "contacts", {
         // @ts-expect-error -- age is not sortable
         orderBy: "age",
       }),
@@ -1193,7 +1193,7 @@ await suite("queryDB with multi entry index", { concurrency: true }, async () =>
 
   const dbSchema = {
     posts: {
-      itemSchema: schema<Post>(),
+      recordSchema: schema<Post>(),
       primaryKeyPath: "id",
       indexedKeyPaths: {
         path: { sortable: true },
